@@ -15,6 +15,7 @@
 - **MCP 接入**：外部 MCP 服务器工具合并进统一工具池，复用同一权限门
 - **Git Worktree 隔离**：按任务创建并行工作线，事件日志全程可审计
 - **健壮容错**：指数退避重试（含随机抖动）、max_tokens 续写、输入超限自动压缩
+- **无头评测**：`bootstrap()` / `run_episode()` 把 REPL 变成可编程的一次性会话，`eval` 权限模式免审批，沙箱隔离 + JSONL 会话留痕，配套 GAIA / SWE-bench 评测框架
 
 ## 架构
 
@@ -30,6 +31,7 @@
 | 调度 | `BackgroundManager` + `CronScheduler` |
 | 隔离 | `WorktreeManager` + `EventBus` |
 | MCP | `agents/mcp_plugin.py` — `MCPClient` / `PluginLoader` / `MCPToolRouter` |
+| 评测 | `agents/eval_runner.py` — 无头 `run_episode` / 沙箱子进程 / 会话留痕 |
 
 ## 快速开始
 
@@ -62,9 +64,9 @@ agent >> 搜索仓库里所有 TODO 注释，汇总到 todo_list.md
 
 运行期可用 `/mode <mode>` 切换：
 
-- `default` — 危险操作（bash、写入等）需用户确认
 - `plan` — 只读模式
-- `auto` — 读取自动放行，写入仍需确认
+- `build` — 正常读写，危险操作（bash、写入等）需用户确认（默认）
+- `eval` — 评测模式，免审批直接放行（无头评测自动启用）
 
 ## 目录结构
 
@@ -72,8 +74,14 @@ agent >> 搜索仓库里所有 TODO 注释，汇总到 todo_list.md
 agents/
   Agent_Harness.py      # 完整 Harness：主循环、工具、权限、钩子、
                         # 记忆、任务、团队、Cron、后台任务、Worktree
+  eval_runner.py        # 无头评测入口：run_episode / 沙箱子进程 / JSONL 留痕
   mcp_plugin.py         # MCP 客户端 / 插件发现 / 工具路由
   README.md             # 能力与工具详细说明
+benchmarks/
+  gaia_eval.py          # GAIA 评测（精确匹配 + LLM-as-judge 双评分）
+  swebench_eval.py      # SWE-bench 评测（clone@base_commit → patch → test 校验）
+  results_sink.py       # 结果沉淀（JSONL + BENCHMARK.md 汇总）
+  results/              # 评测结果输出（已 gitignore）
 examples/mcp/
   echo_server.py        # 极简 stdio MCP 服务器（echo/add/upper）
   db_server.py          # 基于 SQLite 的 MCP 服务器（只读 SQL、建表语句、笔记写入）
@@ -81,6 +89,7 @@ examples/mcp/
 tests/
   test_agents_smoke.py            # 全部 agent 模块的编译冒烟测试
   test_mcp_integration.py         # MCP 客户端 / 路由器 / 插件的端到端测试
+  test_eval_runner.py             # 无头评测（mock 客户端）单元测试
 ```
 
 ## 示例
@@ -92,10 +101,61 @@ tests/
 
 接入方式：把 `examples/mcp/.claude-plugin/plugin.json` 复制到工作目录，启动 Harness 后即可通过 `mcp__echo__*`、`mcp__db__*` 工具调用外部能力；REPL 中可用 `/mcp` 查看已连接的服务器及工具。
 
+## 评测
+
+把"人肉 REPL"变成"可编程的一次性会话"，用于无头跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`。
+
+### 无头评测入口（阶段 1）
+
+```sh
+# 单个任务（当前进程内运行）
+python agents/eval_runner.py "列出当前目录"
+
+# 沙箱隔离：在独立 temp 目录内以子进程运行，不污染主仓库
+python agents/eval_runner.py "修复 build 报错" --workdir /tmp/eval_001
+
+# 指定会话留痕路径 + 限制工具轮数
+python agents/eval_runner.py "完成任务" --transcript /tmp/ep.jsonl --max-rounds 20
+```
+
+成功后向 stdout 打印 JSON：`{"final_reply": "...", "transcript": "...", "rounds": N, "elapsed_s": ...}`。
+
+核心 API（供脚本复用）：
+
+- `bootstrap()` — 统一初始化（记忆 / Cron / SessionStart 钩子 / MCP），REPL 与评测同源
+- `run_episode(prompt, transcript_path, eval_mode, max_rounds)` — 重置全局状态 → 跑主循环 → 返回 `(history, final_reply)`
+- `eval` 权限模式 — `PermissionManager` 免审批放行，无头不卡 `input()`
+- `reset_runtime_state()` — 每次 episode 前重置全局单例，防止跨任务污染
+- JSONL 会话留痕 — 每次 episode 完整对话落盘 `.transcripts/`，失败可回放调试
+
+### GAIA（阶段 3）
+
+```sh
+python benchmarks/gaia_eval.py --max 5 --split test        # 前 5 条 level1 纯文本
+python benchmarks/gaia_eval.py --max 5 --judge             # 启用 LLM-as-judge 二次评分
+```
+
+### SWE-bench（阶段 2）
+
+```sh
+python benchmarks/swebench_eval.py --max 3 --lite                        # 只出 patch
+python benchmarks/swebench_eval.py --max 3 --lite --run-tests            # gold test patch 校验
+```
+
+> 诚信底线：严禁把 gold patch / test patch 喂给模型；评测脚本与数据下载记录会随结果留档。
+
+### 结果沉淀（阶段 5）
+
+所有结果统一落盘 `benchmarks/results/{name}.jsonl`，汇总生成 BENCHMARK.md：
+
+```sh
+python benchmarks/results_sink.py --name gaia --model deepseek-chat --config "max=5, judge=off"
+```
+
 ## 测试
 
 ```sh
-python -m pytest tests/test_agents_smoke.py tests/test_mcp_integration.py -q
+python -m pytest tests/test_agents_smoke.py tests/test_mcp_integration.py tests/test_eval_runner.py -q
 ```
 
 ## License

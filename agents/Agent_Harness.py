@@ -151,8 +151,8 @@ HOOK_TIMEOUT = 30  # 钩子脚本最长执行 30 秒
 TRUST_MARKER = WORKDIR / ".claude" / ".claude_trusted"  # 信任标记文件
 
 # ---- 权限模式 ----
-# build=正常读写、危险操作需确认 plan=只读
-PERMISSION_MODES = ("plan", "build")
+# build=正常读写、危险操作需确认 plan=只读 eval=评测模式（免审批）
+PERMISSION_MODES = ("plan", "build", "eval")
 
 # ---- 错误恢复参数 ----
 MAX_RECOVERY_ATTEMPTS = 3  # 最多重试 3 次
@@ -728,6 +728,10 @@ class PermissionManager:
                 return {"behavior": "deny", "reason": "Plan mode: write operations are blocked"}
             return {"behavior": "allow", "reason": "Plan mode: read-only allowed"}
 
+        # eval 模式：评测免审批，除 deny 黑名单外一律放行（不卡 input()）
+        if self.mode == "eval":
+            return {"behavior": "allow", "reason": "Eval mode: auto-allow"}
+
         # build 模式：读写均可，继续走白名单/询问流程（危险操作询问用户）
 
         # 第4层：allow 白名单规则匹配
@@ -747,6 +751,10 @@ class PermissionManager:
         用户选择 "always" 时会追加一条 allow 规则到 self.rules，
         下次同类操作在白名单中直接命中，无需再问。
         """
+        # 评测模式免审批：直接放行，避免在 input() 处卡死无头评测
+        if self.mode == "eval":
+            return True
+
         # 生成简短预览，防止参数太长刷屏
         preview = json.dumps(tool_input, ensure_ascii=False)[:200]
         log.info(f"Permission check: {tool_name} -> {preview}")
@@ -2708,16 +2716,21 @@ TOOLS = [
 # 【错误恢复】overlong_prompt→自动压缩；API 错误→退避重试；max_tokens→注入续写消息
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def agent_loop(messages: list):
+def agent_loop(messages: list, max_rounds: int = None): # type: ignore
     """增强版主循环：权限检查 + 钩子系统 + 错误恢复 + 定时任务。
 
     messages 对话历史列表会被原地修改。
     rounds_without_todo 追踪模型多少轮没更新 Todo（超 3 轮提醒）；
     max_output_recovery_count 追踪 max_tokens 恢复次数（超限放弃）。
     microcompact 每轮执行（轻量零开销），auto_compact 仅超限时执行（重量级）。
+
+    max_rounds: 评测用，限制工具执行轮数上限（None=不限制）。达到上限时
+    注入停止提示让模型收尾，防止评测任务失控烧钱。
     """
     rounds_without_todo = 0         # "用了 Todo 才重置"计数器
     max_output_recovery_count = 0    # max_tokens 连续恢复计数器
+    tool_rounds = 0                  # 工具执行轮数计数（max_rounds 用）
+    stop_prompt_injected = False     # max_rounds 停止提示只注入一次
 
     while True:
         # 第1步：轻量压缩旧工具结果（极快，不调 API）
@@ -2904,6 +2917,14 @@ def agent_loop(messages: list):
             log.info("manual compact")
             messages[:] = auto_compact(messages, focus=compact_focus) # type: ignore
 
+        # max_rounds 上限：达到后注入停止提示，让模型尽快给出最终回答
+        tool_rounds += 1
+        if max_rounds is not None and tool_rounds >= max_rounds and not stop_prompt_injected:
+            stop_prompt_injected = True
+            log.warning(f"max_rounds={max_rounds} reached. Asking model to conclude.")
+            messages.append({"role": "user", "content": "<eval: max_rounds reached. Stop now and give your best final answer.>"})
+            continue
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # REPL 入口 — 命令行交互界面
@@ -2958,30 +2979,155 @@ def _has_pending_notifications() -> bool:
     return False
 
 
+def extract_final_reply(history: list) -> str:
+    """从 agent_loop 处理后的对话历史中提取模型最终回复的纯文本。
+
+    REPL 打印与评测返回都依赖它。返回 "" 表示历史为空或最后一条不是 assistant。
+    """
+    if not history:
+        return ""
+    last = history[-1]
+    if last["role"] != "assistant":
+        return ""
+    content = last["content"]
+    if isinstance(content, list):
+        # 遍历 content，拼接每个 text block 的文本
+        return "".join(block.text for block in content if hasattr(block, "text"))
+    if isinstance(content, str):
+        return content
+    return str(content)
+
+
 def _print_final_reply(history: list) -> None:
     """打印 agent_loop 处理后的模型最终回复。
 
     用户输入触发的对话和定时任务自动唤醒的对话都要打印最终回复，
     抽取为公共函数避免重复代码。
     """
-    last = history[-1]
-    if last["role"] != "assistant":
-        return
-    content = last["content"]
-    if isinstance(content, list):
-        # 遍历 content，打印每个 text block 的文本
-        for block in content:
-            if hasattr(block, "text"):
-                print(block.text, end="")
-    elif isinstance(content, str):
-        print(content)
+    text = extract_final_reply(history)
+    if text:
+        print(text)
     print()  # 末尾补空行，让输出与提示符分开
 
 
-if __name__ == "__main__":
-    """程序启动入口：加载记忆 → 启动 Cron → 运行 SessionStart 钩子 → 进入 REPL。"""
-    log.info("Starting coding agent...")
+def reset_runtime_state() -> None:
+    """重置进程级全局单例，保证每次评测 episode 互不污染。
 
+    MEMORY / BUS / TASK_MGR / BG / CRON 等都是模块级单例，
+    agent_loop 会持续读写它们；评测连续跑多个任务时若不复位，
+    上一个任务产生的任务、记忆、通知会泄漏到下一个 episode。
+    """
+    global TODO, SKILLS, MCP_ROUTER, TASK_MGR, BG, BUS, TEAM
+    global PERMS, HOOKS, MEMORY, CRON, EVENTS, WORKTREES
+    global shutdown_requests, plan_requests
+
+    # 断开 MCP 客户端，避免残留连接影响下一次评测
+    for _c in list(MCP_ROUTER.clients.values()):
+        try:
+            _c.disconnect()
+        except Exception:
+            pass
+
+    # 停止 Cron 后台线程（避免跨 episode 触发旧任务）
+    try:
+        CRON.stop()
+    except Exception:
+        pass
+
+    TODO = TodoManager()
+    SKILLS = SkillLoader(SKILLS_DIR)
+    MCP_ROUTER = MCPToolRouter()
+    TASK_MGR = TaskManager()
+    BG = BackgroundManager()
+    BUS = MessageBus()
+    TEAM = TeammateManager(BUS, TASK_MGR)
+    PERMS = PermissionManager(mode="build")
+    HOOKS = HookManager()
+    MEMORY = MemoryManager()
+    CRON = CronScheduler()
+    EVENTS = EventBus(WORKTREE_EVENTS_LOG)
+    WORKTREES = WorktreeManager(REPO_ROOT, TASK_MGR, EVENTS)
+    shutdown_requests = {}
+    plan_requests = {}
+
+
+def write_transcript(history: list, path: Path) -> Path:
+    """把一次 episode 的完整对话历史写成 JSONL 会话留痕，失败可回放调试。
+
+    每条消息一行 JSON（经 normalize_messages 转为纯 dict）。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for msg in normalize_messages(history):
+            f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+    return path
+
+
+def run_episode(prompt: str, transcript_path: Path = None, eval_mode: bool = True,
+                max_rounds: int = None) -> tuple: # type: ignore
+    """无头运行一次完整评测 episode。
+
+    等价于一次一次性会话：重置全局状态 → 注入用户 prompt → agent_loop 主循环
+    直至模型给出最终回答 → 返回 (history, final_reply)。
+
+    - transcript_path: 非 None 时把完整对话历史写成 JSONL 留痕
+    - eval_mode: 为 True 时切到 eval 权限模式（免审批，不卡 input()）
+    - max_rounds: 限制最大工具执行轮数（防超时/烧钱）
+    返回的 history 为完整对话历史（含 tool_use / tool_result），final_reply 为最终文本。
+    """
+    if transcript_path is None:
+        transcript_path = TRANSCRIPT_DIR / f"eval_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jsonl"
+    transcript_path = Path(transcript_path)
+
+    # 全局状态隔离：每个 episode 前必须重置
+    reset_runtime_state()
+    if eval_mode:
+        PERMS.mode = "eval"
+
+    history = [{"role": "user", "content": prompt}]
+    try:
+        agent_loop(history, max_rounds=max_rounds)
+    finally:
+        # 会话留痕：无论成功失败都落盘，失败可回放调试
+        write_transcript(history, transcript_path)
+    final_reply = extract_final_reply(history)
+    return history, final_reply
+
+
+def _connect_mcp_servers() -> int:
+    """扫描并连接 MCP 服务器，工具注册进 TOOLS（前缀 mcp__{server}__{tool}）。
+
+    读取 .claude-plugin/plugin.json 的 mcpServers 配置。返回成功连接的服务器数。
+    """
+    _mcp_loader = PluginLoader(search_dirs=[WORKDIR])
+    _mcp_found = _mcp_loader.scan()
+    if not _mcp_found:
+        return 0
+    _existing = {t["name"] for t in TOOLS}
+    _connected = 0
+    for _srv_name, _cfg in _mcp_loader.get_mcp_servers().items():
+        _c = MCPClient(_srv_name, _cfg.get("command", ""), _cfg.get("args", []), _cfg.get("env"))
+        if _c.connect():
+            _c.list_tools()
+            MCP_ROUTER.register_client(_c)
+            for _t in _c.get_agent_tools():
+                if _t["name"] not in _existing:
+                    TOOLS.append(_t)
+            log.info(f"[MCP] Connected to {_srv_name} ({len(_c.get_agent_tools())} tools)")
+            _connected += 1
+        else:
+            log.warning(f"[MCP] Failed to connect: {_srv_name}")
+    if MCP_ROUTER.clients:
+        log.info(f"[MCP] {len(MCP_ROUTER.clients)} server(s) connected, {len(MCP_ROUTER.get_all_tools())} external tools registered")
+    return _connected
+
+
+def bootstrap() -> dict:
+    """初始化运行时环境：加载记忆 → 启动 Cron → SessionStart 钩子 → 连接 MCP。
+
+    评测入口与 REPL 共用同一套初始化，保证行为一致。
+    返回各阶段统计信息。
+    """
     # 加载跨会话记忆
     MEMORY.load_all()
     mem_count = len(MEMORY.memories)
@@ -2995,28 +3141,23 @@ if __name__ == "__main__":
     # 执行会话启动钩子
     HOOKS.run_hooks("SessionStart", {"tool_name": "", "tool_input": {}})
 
+    # 连接 MCP 服务器
+    mcp_count = _connect_mcp_servers()
+
+    return {"memories": mem_count, "mcp_servers": mcp_count, "tools": len(TOOLS)}
+
+
+if __name__ == "__main__":
+    """程序启动入口：加载记忆 → 启动 Cron → 运行 SessionStart 钩子 → 进入 REPL。"""
+    log.info("Starting coding agent...")
+
+    # 统一的运行时初始化（评测入口也复用 bootstrap）
+    stats = bootstrap()
+    mem_count = stats["memories"]
+
     # Git 不可用时给出警告
     if not WORKTREES.git_available:
         log.warning("Not in a git repo. worktree_* tools will return errors.")
-
-    # 连接 MCP 服务器（读 .claude-plugin/plugin.json 的 mcpServers，工具前缀 mcp__{server}__{tool}）
-    _mcp_loader = PluginLoader(search_dirs=[WORKDIR])
-    _mcp_found = _mcp_loader.scan()
-    if _mcp_found:
-        _existing = {t["name"] for t in TOOLS}
-        for _srv_name, _cfg in _mcp_loader.get_mcp_servers().items():
-            _c = MCPClient(_srv_name, _cfg.get("command", ""), _cfg.get("args", []), _cfg.get("env"))
-            if _c.connect():
-                _c.list_tools()
-                MCP_ROUTER.register_client(_c)
-                for _t in _c.get_agent_tools():
-                    if _t["name"] not in _existing:
-                        TOOLS.append(_t)
-                log.info(f"[MCP] Connected to {_srv_name} ({len(_c.get_agent_tools())} tools)")
-            else:
-                log.warning(f"[MCP] Failed to connect: {_srv_name}")
-        if MCP_ROUTER.clients:
-            log.info(f"[MCP] {len(MCP_ROUTER.clients)} server(s) connected, {len(MCP_ROUTER.get_all_tools())} external tools registered")
 
     print(f"[Agent Ready] coding-agent | mode={PERMS.mode} | tools={len(TOOLS)} | memories={mem_count}")
 

@@ -238,6 +238,7 @@ examples/mcp/sample.db
 .team/
 .transcripts/
 .claude/
+benchmarks/results/
 
 # Local scratch files / drafts kept out of version control
 agents/s*.py
