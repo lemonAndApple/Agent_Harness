@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -36,25 +37,54 @@ def _safe_repo_name(repo: str) -> str:
 
 
 def _git(*args, cwd: Path):
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=600)
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=900)
     if r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr[-1000:]}")
     return r.stdout.strip()
 
 
+def _github_clone(repo: str, target: Path, cwd: Path) -> None:
+    """clone GitHub 仓库，直连失败时自动回退到国内加速镜像（GIT_MIRROR 可覆盖）。"""
+    url = f"https://github.com/{repo}.git"
+    mirror = os.environ.get("GIT_MIRROR")
+    candidates = [url] + ([mirror + "/" + url] if mirror else ["https://ghfast.top/" + url])
+    for i, cand in enumerate(candidates):
+        r = subprocess.run(["git", "clone", cand, str(target)], cwd=cwd,
+                           capture_output=True, text=True, timeout=900)
+        if r.returncode == 0:
+            if i > 0:
+                print(f"[swebench] cloned via mirror: {cand}")
+            return
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+    raise RuntimeError(f"git clone {url} failed via all endpoints")
+
+
 def load_swebench(max_items: int = None, lite: bool = True) -> list: # type: ignore
-    """加载 SWE-bench 数据集，取 lite 子集（或前 N 条）。"""
+    """加载 SWE-bench 数据集，取 lite 子集（或前 N 条）。
+
+    直连 huggingface.co 不可达时可用镜像：HF_ENDPOINT=https://hf-mirror.com
+    （脚本内若已设置环境变量则优先，否则尝试默认端点）。
+    """
     try:
         from datasets import load_dataset
     except ImportError as e:
         raise SystemExit("需要 `pip install datasets` 才能加载 SWE-bench 数据") from e
 
+    # 若默认端点不可达，回退到国内镜像端点
+    if not os.environ.get("HF_ENDPOINT"):
+        import urllib.request
+        try:
+            urllib.request.urlopen("https://huggingface.co", timeout=5)
+        except Exception:
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
     split = "test"
-    try:
-        ds = load_dataset("princeton-nlp/SWE-bench", split=split)
-    except Exception:
-        # 旧版本可能命名不同：全量 SWE-bench
-        ds = load_dataset("princeton-nlp/SWE-bench", "lite", split=split)
+    ds = load_dataset("princeton-nlp/SWE-bench", split=split)
+    if lite:
+        # SWE-bench-Lite = 精选 300 条子集，可从数据集中按 instance_id 筛选；
+        # 此处简化为取 test split 前 max_items 条（Lite 本身在 default 中无独立 config）
+        pass
 
     items = []
     for row in ds:
@@ -81,7 +111,7 @@ def setup_repo(item: dict) -> Path:
 
     # clone 到临时目录（完整 clone 后切到指定 commit）
     tmp = workdir / "src"
-    _git("clone", f"https://github.com/{item['repo']}.git", str(tmp))
+    _github_clone(item["repo"], tmp, workdir)
     _git("checkout", item["base_commit"], cwd=tmp)
     return tmp
 
@@ -99,27 +129,37 @@ def _apply_patch(path: Path, patch: str) -> None:
 def _run_tests(repo_dir: Path, item: dict) -> tuple[bool, str]:
     """用官方 gold test patch 做 PASS_TO_PASS / FAIL_TO_PASS 校验。
 
-    步骤：模型 patch（git diff）→ 应用 gold test patch → 跑 FAIL_TO_PASS 测试
-    断言之前失败的测试现在通过。
+    步骤：模型 patch（git diff）→ 应用 gold test patch → 运行被修改的测试文件，
+    断言之前失败的测试现在通过（FAIL_TO_PASS 近似：全部用例通过即视为 resolve）。
+
+    注意：模型 patch 为空（如 API 失败）时直接判失败，绝不"假定通过"。
     """
     # 模型 patch = 评测结束后工作目录相对 base_commit 的 diff
     model_patch = _git("diff", cwd=repo_dir)
+    if not model_patch.strip():
+        return False, "model_patch is empty (agent produced no changes); cannot pass"
 
     # 应用官方 test patch（仅测试文件）
-    _apply_patch(repo_dir, item["test_patch"])
+    try:
+        _apply_patch(repo_dir, item["test_patch"])
+    except RuntimeError as e:
+        return False, f"apply test_patch failed: {e}"
 
-    # 从 test_patch 中提取测试命令（PASS_TO_PASS / FAIL_TO_PASS）
-    # 简化实现：跑仓库默认测试命令，仅统计 FAIL_TO_PASS 中列出的测试
-    fails_to_pass = re.findall(r"FAIL_TO_PASS:\[(.*?)\]", item["test_patch"])
-    tests = [t.strip() for t in fails_to_pass[0].split(",")] if fails_to_pass else []
+    # 从 test_patch 提取被修改的测试文件（diff 里的 a/xxx 路径，含 test 关键字）
+    test_files = [
+        m.group(1)
+        for m in re.finditer(r"^\+\+\+ b/([^\t\n]+)", item["test_patch"], re.MULTILINE)
+        if "test" in m.group(1).lower()
+    ]
+    if not test_files:
+        return False, "no test files found in test_patch; cannot verify (not assumed pass)"
 
-    if not tests:
-        return True, "no FAIL_TO_PASS tests specified; assuming pass (model_patch applied)"
-
-    r = subprocess.run(["python", "-m", "pytest", "-q", *tests],
+    r = subprocess.run(["python", "-m", "pytest", "-q", *test_files],
                        cwd=repo_dir, capture_output=True, text=True, timeout=1800)
     passed = r.returncode == 0
-    return passed, (r.stdout + r.stderr)[-2000:]
+    detail = (r.stdout + r.stderr)[-2000:]
+    # 附加说明：应用的是 test_patch 修改后的测试文件 + 模型的 diff
+    return passed, f"pytest {test_files}: {detail}"
 
 
 def run_swebench(max_items: int = None, run_tests: bool = False,
@@ -136,7 +176,7 @@ def run_swebench(max_items: int = None, run_tests: bool = False,
                 item["problem_statement"],
                 workdir=repo_dir,
                 max_rounds=30,
-                subprocess_mode=False,
+                subprocess_mode=True,
             )
             prediction = result["final_reply"]
 
