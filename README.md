@@ -80,6 +80,7 @@ agents/
 benchmarks/
   gaia_eval.py          # GAIA 评测（精确匹配 + LLM-as-judge 双评分）
   swebench_eval.py      # SWE-bench 评测（clone@base_commit → patch → test 校验）
+  stress_compact.py     # 长会话压缩压测（auto_compact 前后 token 对比）
   results_sink.py       # 结果沉淀（JSONL + BENCHMARK.md 汇总）
   results/              # 评测结果输出（已 gitignore）
 examples/mcp/
@@ -127,6 +128,23 @@ python agents/eval_runner.py "完成任务" --transcript /tmp/ep.jsonl --max-rou
 - `eval` 权限模式 — `PermissionManager` 免审批放行，无头不卡 `input()`
 - `reset_runtime_state()` — 每次 episode 前重置全局单例，防止跨任务污染
 - JSONL 会话留痕 — 每次 episode 完整对话落盘 `.transcripts/`，失败可回放调试
+
+### 压测（阶段 4）
+
+合成长历史触发 `auto_compact`，实测压缩前后 token 与耗时：
+
+```sh
+python benchmarks/stress_compact.py --target-chars 500000
+```
+
+**实测结果**（deepseek-chat，2026-08-21）：
+
+| 指标 | 值 |
+|---|---|
+| 输入 | 50.9 万字符 / 12.7 万 token（64 条消息） |
+| 压缩后 | 2842 字符 / 710 token（1 条续接消息） |
+| **token 减少** | **99.4%** |
+| 耗时 | 27.2s（7 分块摘要 + 1 合并，共 8 次 LLM 调用） |
 
 ### GAIA（阶段 3）
 

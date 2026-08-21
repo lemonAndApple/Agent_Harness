@@ -35,12 +35,15 @@ def load_results(name: str = "eval") -> list:
 
 
 def summarize(results: list) -> dict:
-    """汇总指标：条数、通过率、平均轮次、平均耗时、平均成本。"""
+    """汇总指标：条数、通过率、平均轮次、平均耗时、平均成本。
+
+    若记录含 token_reduction_pct（压测类），额外给出平均 token 减少。
+    """
     if not results:
         return {"count": 0}
     total = len(results)
     passed = sum(1 for r in results if r.get("passed"))
-    return {
+    summary = {
         "count": total,
         "passed": passed,
         "pass_rate": round(passed / total, 4),
@@ -48,6 +51,11 @@ def summarize(results: list) -> dict:
         "avg_elapsed_s": round(sum(r.get("elapsed_s", 0) for r in results) / total, 2),
         "total_cost_usd": round(sum(r.get("cost_usd", 0) for r in results), 4),
     }
+    if any("token_reduction_pct" in r for r in results):
+        summary["avg_token_reduction_pct"] = round(
+            sum(r.get("token_reduction_pct", 0) for r in results) / total, 2
+        )
+    return summary
 
 
 def write_benchmark_md(name: str = "eval", model: str = "", config: str = "") -> Path:
@@ -75,6 +83,7 @@ def write_benchmark_md(name: str = "eval", model: str = "", config: str = "") ->
         f"| 平均轮次 | {summary.get('avg_rounds', 0)} |",
         f"| 平均耗时(s) | {summary.get('avg_elapsed_s', 0)} |",
         f"| 总成本($) | {summary.get('total_cost_usd', 0)} |",
+        f"| 平均 token 减少 | {summary.get('avg_token_reduction_pct', '-')}% |",
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
