@@ -1,28 +1,28 @@
 # Coding Agent Harness
 
-基于 Python 从 0 实现的端到端 LLM 编程智能体（AI 编程助手）。它运行经典的 Agent 主循环——调用模型、执行工具、回填结果——并扩展到完整的多 Agent 协作平台：持久化任务板、定时调度、Git Worktree 任务隔离、MCP 外部工具接入。
+基于 Python 从零实现的端到端 LLM 编程智能体（AI 编程助手）。它运行经典的 Agent 主循环——调用模型、执行工具、回写结果——并扩展到完整的多 Agent 协作平台：持久化任务板、定时调度、Git Worktree 任务隔离、MCP 外部工具接入。
 
 模型负责推理，Harness 为模型提供一个安全、可控的工作环境。
 
 ## 核心能力
 
-- **Agent 主循环**：`调用 LLM → 解析 tool_use → 执行工具 → 回填 tool_result`，循环直至模型给出最终回答
-- **37 个工具**，由 JSON Schema 分发表驱动：bash、文件读/写/精确编辑、正则检索、子代理委派、会话内待办跟踪、持久化任务、后台任务、Cron 定时调度、团队消息
-- **上下文管理**：每轮轻量压缩 + 超 10 万 token 触发 LLM 分块智能摘要；超大工具输出自动落盘并替换为预览标记
+- **Agent 主循环**：`调用 LLM → 解析 tool_use → 执行工具 → 回写 tool_result`，循环直至模型给出最终回答
+- **37 个工具**，由 JSON Schema 注册分发表驱动：bash、文件读/写/精确编辑、正则检索、子代理委派、会话内待办跟踪、持久化任务、后台任务、Cron 定时调度、团队消息
+- **上下文管理**：每轮轻量压缩 + 超 10 万 token 触发 LLM 分块智能摘要；超大工具输出自动写入磁盘并替换为预览标记
 - **多 Agent 团队**：文件邮箱消息传递、自主任务认领（互斥锁保护）、定向 / 广播消息、计划审批与关闭协议
-- **安全体系**：路径沙箱、危险命令扫描、黑白名单 + 询问用户的权限管道（`default` / `plan` / `auto` 三种模式）
+- **安全体系**：路径沙箱、危险命令扫描、黑白名单 + 询问用户的权限管道（`plan` / `build` / `eval` 三种模式）
 - **持久化**：跨会话记忆、带依赖关系的文件任务板、JSONL 消息总线、工作树事件日志
 - **MCP 接入**：外部 MCP 服务器工具合并进统一工具池，复用同一权限门
 - **Git Worktree 隔离**：按任务创建并行工作线，事件日志全程可审计
 - **健壮容错**：指数退避重试（含随机抖动）、max_tokens 续写、输入超限自动压缩
-- **无头评测**：`bootstrap()` / `run_episode()` 把 REPL 变成可编程的一次性会话，`eval` 权限模式免审批，沙箱隔离 + JSONL 会话留痕，配套 GAIA / SWE-bench 评测框架
+- **无头评测**：`bootstrap()` / `run_episode()` 将交互式 REPL 封装为可编程的一次性会话，`eval` 权限模式免审批，沙箱隔离 + JSONL 会话记录，配套 GAIA / SWE-bench 评测框架
 
 ## 架构
 
 | 关注点 | 实现 |
 |---|---|
 | 主循环 | `agent_loop()` — 权限检查、Pre/Post 钩子、错误恢复、异步通知 |
-| 工具 | `TOOL_HANDLERS` / `TOOLS` 分发表 + JSON Schema 定义 |
+| 工具 | `TOOL_HANDLERS` / `TOOLS` 注册分发表 + JSON Schema 定义 |
 | 权限 | `PermissionManager` + `BashSecurityValidator` |
 | 钩子 | `HookManager`（`PreToolUse` / `PostToolUse` / `SessionStart`） |
 | 记忆 | `MemoryManager`（user / feedback / project / reference） |
@@ -31,7 +31,7 @@
 | 调度 | `BackgroundManager` + `CronScheduler` |
 | 隔离 | `WorktreeManager` + `EventBus` |
 | MCP | `agents/mcp_plugin.py` — `MCPClient` / `PluginLoader` / `MCPToolRouter` |
-| 评测 | `agents/eval_runner.py` — 无头 `run_episode` / 沙箱子进程 / 会话留痕 |
+| 评测 | `agents/eval_runner.py` — 无头 `run_episode` / 沙箱子进程 / 会话记录 |
 
 ## 快速开始
 
@@ -74,7 +74,7 @@ agent >> 搜索仓库里所有 TODO 注释，汇总到 todo_list.md
 agents/
   Agent_Harness.py      # 完整 Harness：主循环、工具、权限、钩子、
                         # 记忆、任务、团队、Cron、后台任务、Worktree
-  eval_runner.py        # 无头评测入口：run_episode / 沙箱子进程 / JSONL 留痕
+  eval_runner.py        # 无头评测入口：run_episode / 沙箱子进程 / JSONL 会话记录
   mcp_plugin.py         # MCP 客户端 / 插件发现 / 工具路由
   README.md             # 能力与工具详细说明
 benchmarks/
@@ -90,7 +90,7 @@ examples/mcp/
 tests/
   test_agents_smoke.py            # 全部 agent 模块的编译冒烟测试
   test_mcp_integration.py         # MCP 客户端 / 路由器 / 插件的端到端测试
-  test_eval_runner.py             # 无头评测（mock 客户端）单元测试
+  test_eval_runner.py             # 无头评测（Mock 客户端）单元测试
 ```
 
 ## 示例
@@ -104,7 +104,7 @@ tests/
 
 ## 评测
 
-把"人肉 REPL"变成"可编程的一次性会话"，用于无头跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`。
+把"人工驱动的交互式 REPL"重构为"可编程的一次性会话"，可在无头（headless）环境下批量跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`。
 
 ### 无头评测入口（阶段 1）
 
@@ -115,7 +115,7 @@ python agents/eval_runner.py "列出当前目录"
 # 沙箱隔离：在独立 temp 目录内以子进程运行，不污染主仓库
 python agents/eval_runner.py "修复 build 报错" --workdir /tmp/eval_001
 
-# 指定会话留痕路径 + 限制工具轮数
+# 指定会话记录路径 + 限制工具轮数
 python agents/eval_runner.py "完成任务" --transcript /tmp/ep.jsonl --max-rounds 20
 ```
 
@@ -124,10 +124,10 @@ python agents/eval_runner.py "完成任务" --transcript /tmp/ep.jsonl --max-rou
 核心 API（供脚本复用）：
 
 - `bootstrap()` — 统一初始化（记忆 / Cron / SessionStart 钩子 / MCP），REPL 与评测同源
-- `run_episode(prompt, transcript_path, eval_mode, max_rounds)` — 重置全局状态 → 跑主循环 → 返回 `(history, final_reply)`
-- `eval` 权限模式 — `PermissionManager` 免审批放行，无头不卡 `input()`
-- `reset_runtime_state()` — 每次 episode 前重置全局单例，防止跨任务污染
-- JSONL 会话留痕 — 每次 episode 完整对话落盘 `.transcripts/`，失败可回放调试
+- `run_episode(prompt, transcript_path, eval_mode, max_rounds)` — 重置全局状态 → 执行主循环 → 返回 `(history, final_reply)`
+- `eval` 权限模式 — `PermissionManager` 免审批放行，无头运行不阻塞等待用户输入
+- `reset_runtime_state()` — 每次 episode 前重置全局单例，防止跨任务状态污染
+- JSONL 会话记录 — 每次 episode 完整对话写入 `.transcripts/`，失败可回放调试
 
 ### 压测（阶段 4）
 
@@ -160,11 +160,11 @@ python benchmarks/swebench_eval.py --max 3 --lite                        # 只�
 python benchmarks/swebench_eval.py --max 3 --lite --run-tests            # gold test patch 校验
 ```
 
-> 诚信底线：严禁把 gold patch / test patch 喂给模型；评测脚本与数据下载记录会随结果留档。
+> 评测规范：严禁将 gold patch / test patch 注入模型输入；评测脚本与数据下载记录将随结果归档留证。
 
 ### 结果沉淀（阶段 5）
 
-所有结果统一落盘 `benchmarks/results/{name}.jsonl`，汇总生成 BENCHMARK.md：
+所有结果统一写入 `benchmarks/results/{name}.jsonl`，汇总生成 BENCHMARK.md：
 
 ```sh
 python benchmarks/results_sink.py --name gaia --model deepseek-chat --config "max=5, judge=off"

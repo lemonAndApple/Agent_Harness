@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """结果沉淀（阶段 5）：汇总评测结果 → JSONL / 表格，写 BENCHMARK.md。
 
-所有评测结果统一落盘到 benchmarks/results/，便于复现与对比。
+所有评测结果统一写入 benchmarks/results/，便于复现与对比。
 """
 
 from __future__ import annotations

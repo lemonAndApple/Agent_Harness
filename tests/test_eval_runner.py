@@ -67,7 +67,7 @@ def test_run_episode_simple(monkeypatch, tmp_path, fake_client):
     assert final == "目录内容"
     assert history[0] == {"role": "user", "content": "列出当前目录"}
     assert history[-1]["role"] == "assistant"
-    # 会话留痕：JSONL 落盘
+    # 会话记录：JSONL 写入磁盘
     assert transcript.exists()
     lines = transcript.read_text(encoding="utf-8").strip().splitlines()
     assert lines, "transcript should not be empty"
@@ -75,7 +75,7 @@ def test_run_episode_simple(monkeypatch, tmp_path, fake_client):
 
 
 def test_run_episode_tool_round(monkeypatch, tmp_path, fake_client):
-    """工具调用轮：模型先 tool_use 再 end_turn，验证 tool_result 回填。"""
+    """工具调用轮：模型先 tool_use 再 end_turn，验证 tool_result 回写。"""
     fake_client.responses = [
         _resp([_tool_use_block("t1", "bash", {"command": "echo hi"})], stop_reason="tool_use"),
         _resp([_text_block("finished")]),
@@ -85,7 +85,7 @@ def test_run_episode_tool_round(monkeypatch, tmp_path, fake_client):
     history, final = A.run_episode("run a command", transcript_path=transcript)
 
     assert final == "finished"
-    # 找 tool_result 回填
+    # 找 tool_result 回写
     tool_results = [
         part for m in history
         if m["role"] == "user" and isinstance(m.get("content"), list)
@@ -97,7 +97,7 @@ def test_run_episode_tool_round(monkeypatch, tmp_path, fake_client):
 
 
 def test_run_episode_max_rounds(monkeypatch, tmp_path, fake_client):
-    """max_rounds 兜底：模型一直调工具也不至于无限循环。"""
+    """max_rounds 兜底限制：模型一直调工具也不至于无限循环。"""
     A.MODEL = "test-model"
     calls = {"n": 0}
 
@@ -112,7 +112,7 @@ def test_run_episode_max_rounds(monkeypatch, tmp_path, fake_client):
 
     history, final = A.run_episode("loop", transcript_path=transcript, max_rounds=2)
 
-    # 达到上限后注入停止提示并收敛，transcript 落盘
+    # 达到上限后注入停止提示并收敛，transcript 写入磁盘
     assert transcript.exists()
     assert any("max_rounds reached" in str(m.get("content", "")) for m in history)
 
@@ -124,7 +124,7 @@ def test_reset_runtime_state(monkeypatch):
     old_cron = A.CRON
     old_perms = A.PERMS
 
-    # 造一点内存脏状态
+    # 注入一些内存中的过期状态
     A.MEMORY.memories["stale"] = {"description": "x", "type": "project", "content": "x", "file": "x"}
     A.CRON.tasks.append({"id": "stale-cron", "cron": "* * * * *", "prompt": "x", "recurring": True, "durable": False, "createdAt": 0})
 

@@ -66,7 +66,7 @@ def synthesize_history(target_chars: int) -> list:
                 _tool_use_block(tid, "read_file", {"path": f"src/module_{round_i % 20}.py", "limit": 500}),
             ],
         })
-        # user: 大工具输出回填
+        # user: 大工具输出回写
         dump = _code_dump(120)
         messages.append({"role": "user", "content": [_tool_result(tid, dump)]})
         # assistant: 简短进展

@@ -8,7 +8,7 @@
   python benchmarks/swebench_eval.py --max 3 --lite --run-tests  # 用官方 test patch 做 PASS_TO_PASS / FAIL_TO_PASS 校验
 
 注意事项（诚信底线）：
-  - 严禁把 gold patch 或 test patch 内容喂给模型
+  - 严禁把 gold patch 或 test patch 内容注入模型输入
   - 评测脚本与数据下载记录会随结果一起留档
 """
 

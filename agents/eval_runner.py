@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""评测入口：把"人肉 REPL"变成"可编程的一次性会话"（阶段 1 · 无头评测）。
+"""评测入口：把"人工驱动的交互式 REPL"重构为"可编程的一次性会话"（阶段 1 · 无头评测）。
 
 设计要点（对应 docs/eval-stress-roadmap.md 阶段 1）：
   - bootstrap() / run_episode() 复用 Agent_Harness 的初始化与主循环
   - 全局状态隔离：每个 episode 前 reset_runtime_state()，防跨任务污染
-  - 评测免审批：eval 权限模式，ask_user 直接放行，无头不卡 input()
+  - 评测免审批：eval 权限模式，ask_user 直接放行，无头不阻塞等待输入
   - 沙箱隔离：--workdir 指定独立 temp 目录/worktree，不污染主仓库
-  - 会话留痕：transcript JSONL 落盘，失败可回放调试
+  - 会话记录：transcript JSONL 写入磁盘，失败可回放调试
 
 用法：
   python agents/eval_runner.py "列出当前目录"
@@ -50,7 +50,7 @@ def run_episode(prompt: str, workdir: Path = None, transcript: Path = None, # ty
         eval_mode=True,
         max_rounds=max_rounds,
     )
-    # 统计轮数：数 user 消息（含初始 prompt 与每轮 tool_result 回填）
+    # 统计轮数：数 user 消息（含初始 prompt 与每轮 tool_result 回写）
     rounds = sum(1 for m in history if m.get("role") == "user")
     return {
         "final_reply": final_reply,
@@ -95,7 +95,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="无头评测入口（阶段1）")
     parser.add_argument("prompt", nargs="?", help="要执行的评测任务指令")
     parser.add_argument("--workdir", type=Path, default=None, help="沙箱工作目录（默认当前目录）")
-    parser.add_argument("--transcript", type=Path, default=None, help="会话留痕 JSONL 路径")
+    parser.add_argument("--transcript", type=Path, default=None, help="会话记录 JSONL 路径")
     parser.add_argument("--max-rounds", type=int, default=None, help="工具执行轮数上限")
     parser.add_argument("--in-process", action="store_true", help="强制当前进程内运行（不沙箱）")
     parser.add_argument("--subprocess-child", action="store_true", help=argparse.SUPPRESS)

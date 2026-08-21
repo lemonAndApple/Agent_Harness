@@ -4,7 +4,7 @@ Agent_Harness.py - AI 编程助手（Agent）的完整实现
 
 
 程序结构速查：
-  持久化输出     maybe_persist_output()             超长输出落盘+预览
+  持久化输出     maybe_persist_output()             超长输出写入磁盘+预览
   基础工具       safe_path/run_bash/run_read/run_write/run_edit/run_grep
   待办列表       TodoManager                         短期内存任务清单
   Bash安全扫描   BashSecurityValidator               命令危险模式检测
@@ -436,7 +436,7 @@ def run_grep(pattern: str, path: str = ".", include: str = "*") -> str:
 
     比让模型拼 bash grep 更安全、输出更可控。
     - path 经 safe_path 校验，杜绝搜索工作目录以外
-    - 最多返回 200 条，超长自动落盘返回预览
+    - 最多返回 200 条，超长自动写入磁盘并返回预览
     - 跳过隐藏文件/目录、.pyc 缓存、超过 1MB 的文件
     """
     try:
@@ -3052,7 +3052,7 @@ def reset_runtime_state() -> None:
 
 
 def write_transcript(history: list, path: Path) -> Path:
-    """把一次 episode 的完整对话历史写成 JSONL 会话留痕，失败可回放调试。
+    """把一次 episode 的完整对话历史写成 JSONL 会话记录，失败可回放调试。
 
     每条消息一行 JSON（经 normalize_messages 转为纯 dict）。
     """
@@ -3070,7 +3070,7 @@ def run_episode(prompt: str, transcript_path: Path = None, eval_mode: bool = Tru
     等价于一次一次性会话：重置全局状态 → 注入用户 prompt → agent_loop 主循环
     直至模型给出最终回答 → 返回 (history, final_reply)。
 
-    - transcript_path: 非 None 时把完整对话历史写成 JSONL 留痕
+    - transcript_path: 非 None 时把完整对话历史写成 JSONL 会话记录
     - eval_mode: 为 True 时切到 eval 权限模式（免审批，不卡 input()）
     - max_rounds: 限制最大工具执行轮数（防超时/烧钱）
     返回的 history 为完整对话历史（含 tool_use / tool_result），final_reply 为最终文本。
@@ -3088,7 +3088,7 @@ def run_episode(prompt: str, transcript_path: Path = None, eval_mode: bool = Tru
     try:
         agent_loop(history, max_rounds=max_rounds)
     finally:
-        # 会话留痕：无论成功失败都落盘，失败可回放调试
+        # 会话记录：无论成功失败都写入磁盘，失败可回放调试
         write_transcript(history, transcript_path)
     final_reply = extract_final_reply(history)
     return history, final_reply
