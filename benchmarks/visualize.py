@@ -73,7 +73,8 @@ def plot_dashboard(results: list, out: Path) -> Path:
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     fig.suptitle(
-        f"SWE-bench 评测总览  (n={len(results)}  ·  通过 {n_ok}  ·  通过率 {n_ok / max(len(results), 1):.0%})",
+        f"SWE-bench Evaluation Overview  (n={len(results)}  |  Passed {n_ok}  |  "
+        f"Pass rate {n_ok / max(len(results), 1):.0%})",
         fontsize=16, fontweight="bold",
     )
 
@@ -139,7 +140,7 @@ def plot_per_repo(results: list, out: Path) -> Path:
     valid = [sum(1 for x in by_repo[r] if x.get("passed")) for r in repos]
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle("按仓库汇总", fontsize=15, fontweight="bold")
+    fig.suptitle("Per-repo summary", fontsize=15, fontweight="bold")
 
     ax1.bar(repos, counts, color="#9E9E9E")
     ax1.set_title("Instance count")
@@ -178,7 +179,7 @@ def plot_per_instance(results: list, out: Path) -> Path:
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1, 1.4)
-    ax.set_title("逐实例明细", fontsize=15, fontweight="bold")
+    ax.set_title("Per-instance details", fontsize=15, fontweight="bold")
     fig.tight_layout()
     fig.savefig(out, dpi=130, bbox_inches="tight")
     return out
