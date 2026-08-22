@@ -72,7 +72,7 @@ def load_gaia(max_items: int = None, split: str = "test") -> list: # type: ignor
     items = []
     for row in ds:
         # level1 纯文本子集：不含附件（files 为空）且 level==1
-        if row.get("Level") != "1":
+        if row.get("Level") != "1": # type: ignore
             continue
         files = row.get("file_name") or row.get("files") or []
         if files:

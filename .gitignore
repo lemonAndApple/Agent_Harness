@@ -238,7 +238,9 @@ examples/mcp/sample.db
 .team/
 .transcripts/
 .claude/
-benchmarks/results/
+
+# 评测结果留档（JSONL / BENCHMARK.md / 可视化图表）纳入版本控制，便于复现对比
+# benchmarks/results/
 
 # Local scratch files / drafts kept out of version control
 agents/s*.py

@@ -1,0 +1,2 @@
+{"name": "stress_compact", "before_tokens": 127261, "after_tokens": 710, "before_chars": 509044, "after_chars": 2842, "token_reduction_pct": 99.44, "elapsed_s": 27.19, "msgs_before": 64, "msgs_after": 1, "model": "deepseek-chat"}
+{"name": "stress_compact", "before_tokens": 127261, "after_tokens": 598, "before_chars": 509044, "after_chars": 2395, "token_reduction_pct": 99.53, "elapsed_s": 22.42, "msgs_before": 64, "msgs_after": 1, "model": "deepseek-chat"}

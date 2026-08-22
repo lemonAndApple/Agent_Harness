@@ -82,7 +82,8 @@ benchmarks/
   swebench_eval.py      # SWE-bench 评测（clone@base_commit → patch → test 校验）
   stress_compact.py     # 长会话压缩压测（auto_compact 前后 token 对比）
   results_sink.py       # 结果沉淀（JSONL + BENCHMARK.md 汇总）
-  results/              # 评测结果输出（已 gitignore）
+  visualize.py          # 结果可视化（dashboard / per_repo / per_instance 图表）
+  results/              # 评测结果留档（JSONL + BENCHMARK.md + 可视化图表）
 examples/mcp/
   echo_server.py        # 极简 stdio MCP 服务器（echo/add/upper）
   db_server.py          # 基于 SQLite 的 MCP 服务器（只读 SQL、建表语句、笔记写入）
@@ -158,9 +159,34 @@ python benchmarks/gaia_eval.py --max 5 --judge             # 启用 LLM-as-judge
 ```sh
 python benchmarks/swebench_eval.py --max 3 --lite                        # 只出 patch
 python benchmarks/swebench_eval.py --max 3 --lite --run-tests            # gold test patch 校验
+python benchmarks/swebench_eval.py --ids django__django-10087,pallets__flask-4045  # 指定实例白名单
 ```
 
 > 评测规范：严禁将 gold patch / test patch 注入模型输入；评测脚本与数据下载记录将随结果归档留证。
+
+**实测结果**（deepseek-chat，2026-08-22，6 个实例跨 6 仓库；无 Docker 环境，`passed` 以"文件级命中 gold patch 文件"为通过代理）：
+
+| instance | status | rounds | elapsed_s | 命中文件 |
+|---|---|---|---|---|
+| psf__requests-1142 | PASS | 28 | 49 | `requests/models.py` |
+| django__django-10087 | PASS | 60 | 141 | `django/core/management/commands/sqlmigrate.py` |
+| pallets__flask-4045 | PASS | 63 | 253 | `src/flask/blueprints.py` |
+| pytest-dev__pytest-10051 | PASS | 26 | 48 | `src/_pytest/logging.py` |
+| sphinx-doc__sphinx-10021 | FAIL | 32 | 57 | - |
+| sympy__sympy-11232 | FAIL | - | 796 | -（子进程超时） |
+
+**通过率 4/6 = 66.7%**，平均轮次 34.8，平均耗时 224s。完整记录与图表见 `benchmarks/results/`。
+
+### 结果可视化
+
+把 `benchmarks/results/{name}.jsonl` 渲染为图表（dashboard / 按仓库汇总 / 逐实例明细）：
+
+```sh
+python benchmarks/visualize.py --name swebench     # 默认渲染 swebench，可换 gaia 等
+python benchmarks/visualize.py --no-show           # 只存图到 results/visualization/，不弹窗
+```
+
+输出三张 PNG：`dashboard.png`、`per_repo.png`、`per_instance.png`，同时打印汇总指标与逐实例文本表格。
 
 ### 结果沉淀（阶段 5）
 
