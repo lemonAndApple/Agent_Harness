@@ -239,6 +239,9 @@ examples/mcp/sample.db
 .transcripts/
 .claude/
 
+# 评测运行日志（每实例 run logs，体量大会刷屏；结果留档在 benchmarks/results/ 下）
+logs/
+
 # 评测结果留档（JSONL / BENCHMARK.md / 可视化图表）纳入版本控制，便于复现对比
 # benchmarks/results/
 

@@ -80,6 +80,7 @@ agents/
 benchmarks/
   gaia_eval.py          # GAIA 评测（精确匹配 + LLM-as-judge 双评分）
   swebench_eval.py      # SWE-bench 评测（clone@base_commit → patch → test 校验）
+  run_swebench_official.py  # 官方 harness 本地化包装（预构建镜像跑 FAIL_TO_PASS/PASS_TO_PASS）
   stress_compact.py     # 长会话压缩压测（auto_compact 前后 token 对比）
   results_sink.py       # 结果沉淀（JSONL + BENCHMARK.md 汇总）
   visualize.py          # 结果可视化（dashboard / per_repo / per_instance 图表）
@@ -160,22 +161,32 @@ python benchmarks/gaia_eval.py --max 5 --judge             # 启用 LLM-as-judge
 python benchmarks/swebench_eval.py --max 3 --lite                        # 只出 patch
 python benchmarks/swebench_eval.py --max 3 --lite --run-tests            # gold test patch 校验
 python benchmarks/swebench_eval.py --ids django__django-10087,pallets__flask-4045  # 指定实例白名单
+
+# 官方真实测试判定（Docker 预构建镜像 + swebench harness）
+# 先预拉镜像并打 tag（镜像代理：docker.1ms.run，Docker Hub 直连不通的机器用）
+# 再运行（本地化包装：monkeypatch 从本地 worktree 读 requirements，避免 GitHub raw 网络依赖）
+python benchmarks/run_swebench_official.py -d benchmarks/results/swebench_local.json \
+    -p benchmarks/results/predictions_swebench.json -i <ids...> \
+    --max_workers 2 -t 1800 -n swebench --cache_level instance \
+    -id <run_id> --report_dir benchmarks/results/swebench_reports
 ```
 
 > 评测规范：严禁将 gold patch / test patch 注入模型输入；评测脚本与数据下载记录将随结果归档留证。
 
-**实测结果**（deepseek-chat，2026-08-22，6 个实例跨 6 仓库；无 Docker 环境，`passed` 以"文件级命中 gold patch 文件"为通过代理）：
+**实测结果**（deepseek-chat，2026-08-22，6 个实例跨 6 仓库；官方判定用 swebench 4.0.5 + 预构建 Docker 镜像跑 FAIL_TO_PASS/PASS_TO_PASS）：
 
-| instance | status | rounds | elapsed_s | 命中文件 |
-|---|---|---|---|---|
-| psf__requests-1142 | PASS | 28 | 49 | `requests/models.py` |
-| django__django-10087 | PASS | 60 | 141 | `django/core/management/commands/sqlmigrate.py` |
-| pallets__flask-4045 | PASS | 63 | 253 | `src/flask/blueprints.py` |
-| pytest-dev__pytest-10051 | PASS | 26 | 48 | `src/_pytest/logging.py` |
-| sphinx-doc__sphinx-10021 | FAIL | 32 | 57 | - |
-| sympy__sympy-11232 | FAIL | - | 796 | -（子进程超时） |
+| instance | 文件级命中 | 官方判定 | rounds | elapsed_s | FAIL_TO_PASS / PASS_TO_PASS |
+|---|---|---|---|---|---|
+| psf__requests-1142 | 是 | **RESOLVED** | 28 | 49 | 1/1 通过；5/5 通过 |
+| django__django-10087 | 是 | FAIL | 60 | 141 | patch 应用失败（模型补丁缺末尾换行） |
+| pallets__flask-4045 | 是 | FAIL | 63 | 253 | F2P 0/2 通过；P2P 50/50 通过 |
+| pytest-dev__pytest-10051 | 是 | FAIL | 26 | 48 | F2P 0/1 通过；P2P 14/15（1 回归） |
+| sphinx-doc__sphinx-10021 | 否 | - | 32 | 57 | 未产出有效 diff，未提交 |
+| sympy__sympy-11232 | 否 | - | 796 | - | 子进程超时，未产出有效 diff |
 
-**通过率 4/6 = 66.7%**，平均轮次 34.8，平均耗时 224s。完整记录与图表见 `benchmarks/results/`。
+**官方用例通过 1/4（提交评测的 4 条中 requests 真正 resolve）**，文件级命中 4/6 = 66.7%，平均轮次 34.8。完整记录与图表见 `benchmarks/results/`。
+
+> 口径说明：文件级命中（patch_valid）是"模型 diff 触碰了 gold patch 涉及文件"的近似指标；官方判定才是真实测试通过。评测全程严禁 gold patch / test patch 注入模型输入。
 
 ### 结果可视化
 

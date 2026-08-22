@@ -70,11 +70,13 @@ def plot_dashboard(results: list, out: Path) -> Path:
     """整体看板：通过率 / 轮次 / 耗时 / 命中文件 Top。"""
     ok = [r for r in results if r.get("passed")]
     n_ok = len(ok)
+    n_official = sum(1 for r in results if r.get("official_resolved") is True)
+    n_official_total = sum(1 for r in results if r.get("official_resolved") is not None)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     fig.suptitle(
-        f"SWE-bench Evaluation Overview  (n={len(results)}  |  Passed {n_ok}  |  "
-        f"Pass rate {n_ok / max(len(results), 1):.0%})",
+        f"SWE-bench Evaluation Overview  (file-hit {n_ok}/{len(results)}  |  "
+        f"official resolved {n_official}/{n_official_total})",
         fontsize=16, fontweight="bold",
     )
 
@@ -165,15 +167,18 @@ def plot_per_instance(results: list, out: Path) -> Path:
     rounds = [r.get("rounds") or 0 for r in results]
     elapsed = [r.get("elapsed_s") or 0 for r in results]
     status = ["PASS" if r.get("passed") else "FAIL" for r in results]
+    official = ["YES" if r.get("official_resolved") is True else
+                "NO" if r.get("official_resolved") is False else "-" for r in results]
     hits = [",".join(f.split("/")[-1] for f in (r.get("hit_files") or [])) or "-" for r in results]
     errs = [("ERR: " + str(r.get("error", ""))[:40]) if r.get("error") else "-" for r in results]
     errs = [_ascii(e) for e in errs]
 
-    fig, ax = plt.subplots(figsize=(13, 0.6 * len(results) + 2))
+    fig, ax = plt.subplots(figsize=(14, 0.6 * len(results) + 2))
     ax.axis("off")
-    col_labels = ["instance", "status", "rounds", "elapsed_s", "hit_files", "error"]
+    col_labels = ["instance", "status", "official", "rounds", "elapsed_s", "hit_files", "error"]
     table = ax.table(
-        cellText=[[i, s, str(r), str(e), h, er] for i, s, r, e, h, er in zip(ids, status, rounds, elapsed, hits, errs)],
+        cellText=[[i, s, o, str(r), str(e), h, er]
+                  for i, s, o, r, e, h, er in zip(ids, status, official, rounds, elapsed, hits, errs)],
         colLabels=col_labels, loc="center", cellLoc="left",
     )
     table.auto_set_font_size(False)
@@ -209,15 +214,17 @@ def main() -> int:
         print(f"wrote {p}")
 
     # 打印一张简易文本表格，方便终端直接看
-    print("\n" + "=" * 88)
-    print(f"{'instance':<34} {'status':<6} {'rounds':>6} {'elapsed_s':>9}  hit_files")
-    print("-" * 88)
+    print("\n" + "=" * 92)
+    print(f"{'instance':<34} {'hit':<6} {'official':<9} {'rounds':>6} {'elapsed_s':>9}  hit_files")
+    print("-" * 92)
     for r in results:
         iid = _short(r.get("id", "?"), 34)
-        st = "PASS" if r.get("passed") else "FAIL"
-        print(f"{iid:<34} {st:<6} {r.get('rounds') or 0:>6} {r.get('elapsed_s') or 0:>9}  "
+        st = "HIT" if r.get("patch_valid") else "-"
+        off = "RESOLVED" if r.get("official_resolved") is True else \
+              ("FAIL" if r.get("official_resolved") is False else "-")
+        print(f"{iid:<34} {st:<6} {off:<9} {r.get('rounds') or 0:>6} {r.get('elapsed_s') or 0:>9}  "
               f"{','.join(f.split('/')[-1] for f in (r.get('hit_files') or [])) or '-'}")
-    print("=" * 88)
+    print("=" * 92)
 
     _show(args.no_show)
     return 0

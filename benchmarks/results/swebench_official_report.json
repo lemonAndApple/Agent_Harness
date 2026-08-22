@@ -1,0 +1,33 @@
+{
+    "total_instances": 4,
+    "submitted_instances": 4,
+    "completed_instances": 3,
+    "resolved_instances": 1,
+    "unresolved_instances": 2,
+    "empty_patch_instances": 0,
+    "error_instances": 1,
+    "completed_ids": [
+        "pallets__flask-4045",
+        "psf__requests-1142",
+        "pytest-dev__pytest-10051"
+    ],
+    "incomplete_ids": [],
+    "empty_patch_ids": [],
+    "submitted_ids": [
+        "django__django-10087",
+        "pallets__flask-4045",
+        "psf__requests-1142",
+        "pytest-dev__pytest-10051"
+    ],
+    "resolved_ids": [
+        "psf__requests-1142"
+    ],
+    "unresolved_ids": [
+        "pallets__flask-4045",
+        "pytest-dev__pytest-10051"
+    ],
+    "error_ids": [
+        "django__django-10087"
+    ],
+    "schema_version": 2
+}
