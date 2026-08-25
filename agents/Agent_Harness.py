@@ -1695,6 +1695,8 @@ class TeammateManager:
         # 外层循环：WORK PHASE ↔ IDLE PHASE 来回切换
         while True:
             # ────── WORK PHASE ──────
+            silent_rounds = 0          # 连续只调工具、未产出文本的轮数
+            MAX_SILENT_ROUNDS = 8      # 超过则注入收敛提示，防止无限 bash 刷屏
             for _ in range(50):  # 最多 50 轮
                 # ① 检查收件箱
                 inbox = self.bus.read_inbox(name)
@@ -1720,6 +1722,10 @@ class TeammateManager:
                 # ③ 判断是否继续
                 if response.stop_reason != "tool_use":
                     break  # 模型给了最终答案 → 进入 IDLE
+
+                # 模型只调工具没给文本 → 累计空转轮数；给出了文本则清零
+                has_text = any(getattr(b, "text", None) for b in response.content)
+                silent_rounds = 0 if has_text else silent_rounds + 1
 
                 # ④ 执行工具调用
                 results = []
@@ -1748,6 +1754,13 @@ class TeammateManager:
                         results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
 
                 messages.append({"role": "user", "content": results}) # type: ignore
+
+                # 连续空转过多 → 注入收敛提示，让模型停下并总结，而不是无限 bash
+                if silent_rounds >= MAX_SILENT_ROUNDS:
+                    messages.append({"role": "user", "content":
+                        "You have been calling tools repeatedly without producing a summary. "
+                        "Stop now: give one concise final answer describing what you did."})
+                    silent_rounds = 0
 
                 # idle 被触发 → 跳出工作阶段，进入 IDLE
                 if idle_requested:
