@@ -112,6 +112,14 @@ POLL_INTERVAL = 5
 # 队友空转超时自动退出（秒）
 IDLE_TIMEOUT = 60
 
+# ---- 任务板自动拉起队友（auto-heal）----
+# 任务创建后超过该秒数仍未有人认领 → 自动 spawn 一个队友去认领执行
+UNCLAIMED_THRESHOLD = 8
+# 自动拉起的队友最多同时存在的数量（防 API 成本失控）
+AUTO_WORKER_MAX = 3
+# 自动队友池化命名前缀（worker-1, worker-2 ...）
+AUTO_WORKER_PREFIX = "worker"
+
 # ---- 大输出持久化 ----
 # bash 命令输出可能几万行，塞回对话会撑爆上下文，超过阈值写入磁盘并返回预览
 TASK_OUTPUT_DIR = WORKDIR / ".task_outputs"
@@ -1350,7 +1358,8 @@ class TaskManager:
     def create(self, subject: str, description: str = "") -> str:
         """创建新任务，状态初始为 pending，返回 JSON 详情。"""
         task = {"id": self._next_id(), "subject": subject, "description": description,
-                "status": "pending", "owner": None, "blockedBy": [], "blocks": []}
+                "status": "pending", "owner": None, "blockedBy": [], "blocks": [],
+                "created_at": time.time()}
         self._save(task)
         return json.dumps(task, indent=2)
 
@@ -1828,6 +1837,75 @@ class TeammateManager:
     def member_names(self) -> list:
         """返回所有队友的名称列表。"""
         return [m["name"] for m in self.config["members"]]
+
+    # ──────────────────────────────────────────────
+    # 任务板自动拉起队友（auto-heal watchdog）
+    # 若任务创建后一段时间无人认领，自动 spawn 一个队友认领执行，
+    # 使"建任务 → 有人自动干活"闭环，无需用户每次手动 spawn_teammate。
+    # ──────────────────────────────────────────────
+    def start_watchdog(self):
+        """启动后台守护线程：定时扫描任务板，无人认领的任务自动拉起队友。
+
+        daemon=True: 主程序退出时自动结束；单线程，一次只处理一个任务。
+        """
+        if getattr(self, "_watchdog_started", False):
+            return  # 防止重复启动（同进程多次初始化）
+        self._watchdog_started = True
+        threading.Thread(target=self._watchdog, daemon=True).start()
+
+    def _watchdog(self):
+        """守护线程主体：每隔一段时间检查一次任务板。"""
+        while True:
+            try:
+                self._auto_heal()
+            except Exception as e:  # 守护线程绝不因异常退出
+                log.warning(f"[watchdog] error: {e}")
+            time.sleep(POLL_INTERVAL)
+
+    def _auto_heal(self):
+        """找出超时未被认领的 pending 任务，自动拉起一个队友去认领。"""
+        now = time.time()
+
+        # 活跃队友数（working/idle 都算活着），达到上限则不再拉起，防止 API 成本失控
+        active = [m for m in self.config["members"] if m.get("status") in ("working", "idle")]
+        if len(active) >= AUTO_WORKER_MAX:
+            return
+
+        # 扫描任务板：pending + 无 owner + 无依赖阻塞 + 创建后超时未认领
+        for f in sorted(TASKS_DIR.glob("task_*.json")):
+            try:
+                t = json.loads(f.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            if (t.get("status") == "pending"
+                    and not t.get("owner")
+                    and not t.get("blockedBy")
+                    and (now - t.get("created_at", now)) >= UNCLAIMED_THRESHOLD):
+                worker = self._next_worker_name()
+                if not worker:
+                    return  # 无可用名字（已到上限）
+                prompt = (f"<auto-assigned>Task #{t['id']}: {t['subject']}\n"
+                          f"{t.get('description', '')}\n"
+                          f"Claim and complete this task, then idle.</auto-assigned>")
+                log.info(f"[watchdog] unclaimed task #{t['id']} -> spawning '{worker}'")
+                self.spawn(worker, "通用助手", prompt)
+                return  # 一次只处理一个任务，下一轮再看
+
+    def _next_worker_name(self) -> str:
+        """池化生成队友名：优先复用已关闭的 worker-N，找不到才新建编号。"""
+        # 先尝试复用已有但处于 shutdown 的自动队友
+        for m in self.config["members"]:
+            if m["name"].startswith(AUTO_WORKER_PREFIX) and m.get("status") == "shutdown":
+                return m["name"]
+
+        # 统计已存在的自动队友数量，取下一个未用编号
+        used = {m["name"] for m in self.config["members"]
+                if m["name"].startswith(AUTO_WORKER_PREFIX)}
+        for i in range(1, AUTO_WORKER_MAX + 1):
+            name = f"{AUTO_WORKER_PREFIX}-{i}"
+            if name not in used:
+                return name
+        return None  # 全部编号已被占用
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2513,6 +2591,7 @@ def build_system_prompt() -> str:
     parts.append("Multi-step work -> task_create/task_update/task_list (persisted)")
     parts.append("Short checklists -> TodoWrite (in-memory)")
     parts.append("Delegation -> task (subagent spawning)")
+    parts.append("Parallel/independent subtasks -> task_create (a teammate auto-claims and runs it)")
     parts.append("Domain knowledge -> load_skill")
     parts.append("Code search -> search_files (regex, safer than shell grep)")
     parts.append("Delayed/scheduled work -> cron_create (BACKGROUND, never blocks; recurring=False for one-shot)")
@@ -3173,6 +3252,10 @@ if __name__ == "__main__":
         log.warning("Not in a git repo. worktree_* tools will return errors.")
 
     print(f"[Agent Ready] coding-agent | mode={PERMS.mode} | tools={len(TOOLS)} | memories={mem_count}")
+
+    # 启动任务板守护线程：无人认领的任务自动拉起队友执行（仅交互模式启用）
+    TEAM.start_watchdog()
+    log.info("Task-board watchdog started (auto-spawn teammates for unclaimed tasks)")
 
     # ── REPL 循环 ────────────────────────────────────
     history = []  # 对话历史，每次调用 agent_loop 都会修改它
