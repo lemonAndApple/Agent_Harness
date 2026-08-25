@@ -116,7 +116,8 @@ IDLE_TIMEOUT = 60
 # 任务创建后超过该秒数仍未有人认领 → 自动 spawn 一个队友去认领执行
 UNCLAIMED_THRESHOLD = 8
 # 自动拉起的队友最多同时存在的数量（防 API 成本失控）
-AUTO_WORKER_MAX = 3
+# 可用环境变量 AUTO_WORKER_MAX 覆盖（默认 3）
+AUTO_WORKER_MAX = int(os.getenv("AUTO_WORKER_MAX", "3"))
 # 自动队友池化命名前缀（worker-1, worker-2 ...）
 AUTO_WORKER_PREFIX = "worker"
 
@@ -1804,7 +1805,8 @@ class TeammateManager:
 
                 if unclaimed:
                     task = unclaimed[0]
-                    self.task_mgr.claim(task["id"], name)
+                    # 用带互斥锁的全局 claim_task，避免两个 worker 同时抢同一任务
+                    claim_task(task["id"], name, role=role, source="auto")
 
                     # 身份重注入：防止对话被压缩后队友"忘了自己是谁"
                     if len(messages) <= 3:
@@ -1863,15 +1865,15 @@ class TeammateManager:
             time.sleep(POLL_INTERVAL)
 
     def _auto_heal(self):
-        """找出超时未被认领的 pending 任务，自动拉起一个队友去认领。"""
+        """按任务积压量动态拉起队友，认领超时未领的 pending 任务。
+
+        规则：并发 worker 数 = min(待认领任务数, AUTO_WORKER_MAX)。
+        任务多就多开，任务少就少开，始终不超过上限，既按时完成又控成本。
+        """
         now = time.time()
 
-        # 活跃队友数（working/idle 都算活着），达到上限则不再拉起，防止 API 成本失控
-        active = [m for m in self.config["members"] if m.get("status") in ("working", "idle")]
-        if len(active) >= AUTO_WORKER_MAX:
-            return
-
-        # 扫描任务板：pending + 无 owner + 无依赖阻塞 + 创建后超时未认领
+        # 收集所有"可认领"的超时任务：pending + 无 owner + 无依赖阻塞 + 创建后超时
+        claimable = []
         for f in sorted(TASKS_DIR.glob("task_*.json")):
             try:
                 t = json.loads(f.read_text())
@@ -1881,15 +1883,35 @@ class TeammateManager:
                     and not t.get("owner")
                     and not t.get("blockedBy")
                     and (now - t.get("created_at", now)) >= UNCLAIMED_THRESHOLD):
-                worker = self._next_worker_name()
-                if not worker:
-                    return  # 无可用名字（已到上限）
-                prompt = (f"<auto-assigned>Task #{t['id']}: {t['subject']}\n"
-                          f"{t.get('description', '')}\n"
-                          f"Claim and complete this task, then idle.</auto-assigned>")
-                log.info(f"[watchdog] unclaimed task #{t['id']} -> spawning '{worker}'")
-                self.spawn(worker, "通用助手", prompt)
-                return  # 一次只处理一个任务，下一轮再看
+                claimable.append(t)
+
+        if not claimable:
+            return  # 没有积压任务
+
+        # 活跃队友数（working/idle 都算活着）
+        active = [m for m in self.config["members"] if m.get("status") in ("working", "idle")]
+
+        # 目标 = 按积压量动态决定，但封顶 AUTO_WORKER_MAX
+        target = min(len(claimable), AUTO_WORKER_MAX)
+
+        # 需要再拉起的数量
+        wanted = target - len(active)
+        if wanted <= 0:
+            return  # 现有队友够用
+
+        # 逐一拉起，直到达到 target 或名字用尽
+        for task in claimable:
+            worker = self._next_worker_name()
+            if not worker:
+                return  # 无可用名字（已达上限或编号耗尽）
+            prompt = (f"<auto-assigned>Task #{task['id']}: {task['subject']}\n"
+                      f"{task.get('description', '')}\n"
+                      f"Claim and complete this task, then idle.</auto-assigned>")
+            log.info(f"[watchdog] unclaimed task #{task['id']} -> spawning '{worker}'")
+            self.spawn(worker, "通用助手", prompt)
+            wanted -= 1
+            if wanted <= 0:
+                return  # 拉够了这一轮
 
     def _next_worker_name(self) -> str:
         """池化生成队友名：优先复用已关闭的 worker-N，找不到才新建编号。"""
