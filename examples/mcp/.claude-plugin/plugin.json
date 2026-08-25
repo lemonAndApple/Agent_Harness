@@ -4,12 +4,12 @@
   "mcpServers": {
     "echo": {
       "command": "python",
-      "args": ["examples/mcp/echo_server.py"],
+      "args": ["echo_server.py"],
       "env": {}
     },
     "db": {
       "command": "python",
-      "args": ["examples/mcp/db_server.py"],
+      "args": ["db_server.py"],
       "env": {}
     }
   }

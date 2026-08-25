@@ -286,18 +286,21 @@ class PluginLoader:
     def __init__(self, search_dirs: list = None):
         self.search_dirs = search_dirs or [WORKDIR]
         self.plugins = {}  # 名称 -> manifest
+        self._plugin_dirs = {}  # 名称 -> 插件所在目录（用于解析相对路径）
 
     def scan(self) -> list:
         """扫描目录中的.claude-plugin/plugin.json清单文件。"""
         found = []
         for search_dir in self.search_dirs:
-            plugin_dir = Path(search_dir) / ".claude-plugin"
+            search_dir = Path(search_dir)
+            plugin_dir = search_dir / ".claude-plugin"
             manifest_path = plugin_dir / "plugin.json"
             if manifest_path.exists():
                 try:
                     manifest = json.loads(manifest_path.read_text())
                     name = manifest.get("name", plugin_dir.parent.name)
                     self.plugins[name] = manifest
+                    self._plugin_dirs[name] = plugin_dir.parent
                     found.append(name)
                 except (json.JSONDecodeError, OSError) as e:
                     print(f"[Plugin] Failed to load {manifest_path}: {e}")
@@ -307,11 +310,23 @@ class PluginLoader:
         """
         从已加载的插件中提取MCP服务器配置。
         返回 {server_name: {command, args, env}}。
+
+        插件清单中 args 的相对路径会基于插件所在目录解析为绝对路径，
+        避免在不同工作目录下运行时找不到脚本。
         """
         servers = {}
         for plugin_name, manifest in self.plugins.items():
             for server_name, config in manifest.get("mcpServers", {}).items():
-                servers[f"{plugin_name}__{server_name}"] = config
+                server_cfg = dict(config)
+                # 将 args 中的相对路径解析为插件目录下的绝对路径
+                resolved_args = []
+                for arg in server_cfg.get("args", []):
+                    arg_path = Path(arg)
+                    if not arg_path.is_absolute():
+                        arg_path = (self._plugin_dirs[plugin_name] / arg).resolve()
+                    resolved_args.append(str(arg_path))
+                server_cfg["args"] = resolved_args
+                servers[f"{plugin_name}__{server_name}"] = server_cfg
         return servers
 
 
