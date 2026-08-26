@@ -257,6 +257,8 @@ docs/*
 !docs/BENCHMARK.md
 !docs/eval-stress-roadmap.md
 !docs/DATA_PIPELINE.md
+!docs/diagrams/
+!docs/diagrams/*.svg
 skills/
 web/
 README-zh.md
