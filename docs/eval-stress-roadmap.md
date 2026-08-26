@@ -3,16 +3,16 @@
 ## 总体顺序
 
 ```
-阶段1 无头评测入口 ──→ 阶段2 SWE-bench（或阶段3 GAIA）──→ 阶段4 压测 ──→ 阶段5 结果沉淀
+阶段1 headless 评测入口 ──→ 阶段2 SWE-bench（或阶段3 GAIA）──→ 阶段4 压测 ──→ 阶段5 结果沉淀
 ```
 
 阶段 1 是硬前提；2/3 可互换，先跑简单的更能验证 pipeline；4 不烧 API 钱，随时可并行。
 
 ---
 
-## 阶段 1 · 无头评测入口（一切的前提）
+## 阶段 1 · headless 评测入口（一切的前提）
 
-目标：把"人肉 REPL"变成"可编程的一次性会话"。
+目标：把"manual REPL"变成"可编程的一次性会话"。
 
 1. **抽 `bootstrap()`**：将 `__main__`（`agents/Agent_Harness.py`）里的记忆加载、CRON.start、MCP 连接、SessionStart hook 抽出为复用函数；新增 `run_episode(prompt) -> (history, final_reply)`。
 2. **全局状态隔离**：MEMORY / BUS / TASK_MGR / BG / CRON 都是进程级单例，每个 episode 前必须重置，否则前后任务互相污染。

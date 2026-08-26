@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GAIA 评测（阶段 3）：喂问题 → 取最后一条 assistant 文本 → 精确匹配 + LLM-as-judge 双评分。
 
-比 SWE-bench 简单，适合作为无头 pipeline 的快速验证。
+比 SWE-bench 简单，适合作为 headless pipeline 的快速验证。
 数据源：HuggingFace `gaia-benchmark/GAIA`，仅取 level1 纯文本子集（无需 web 工具）。
 
 用法：

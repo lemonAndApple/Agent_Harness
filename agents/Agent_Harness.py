@@ -759,7 +759,7 @@ class PermissionManager:
         用户选择 "always" 时会追加一条 allow 规则到 self.rules，
         下次同类操作在白名单中直接命中，无需再问。
         """
-        # 评测模式免审批：直接放行，避免在 input() 处卡死无头评测
+        # 评测模式免审批：直接放行，避免在 input() 处卡死 headless 评测
         if self.mode == "eval":
             return True
 
@@ -3157,7 +3157,7 @@ def write_transcript(history: list, path: Path) -> Path:
 
 def run_episode(prompt: str, transcript_path: Path = None, eval_mode: bool = True, # type: ignore
                 max_rounds: int = None) -> tuple: # type: ignore
-    """无头运行一次完整评测 episode。
+    """headless 运行一次完整评测 episode。
 
     等价于一次一次性会话：重置全局状态 → 注入用户 prompt → agent_loop 主循环
     直至模型给出最终回答 → 返回 (history, final_reply)。

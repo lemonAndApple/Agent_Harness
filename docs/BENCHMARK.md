@@ -45,7 +45,7 @@
 
 ## 2. 前置：把交互式 Agent 变成"可评测的程序"
 
-Agent 平时是**人机对话**（人在终端里打字，它调工具干活）。评测时没人打字，所以要把它改造成**无头（headless）、无交互、可批量、可留痕**的形态。
+Agent 平时是**人机对话**（人在终端里打字，它调工具干活）。评测时没人打字，所以要把它改造成**headless、无交互、可批量、可留痕**的形态。
 
 ### 2.1 `bootstrap()` 与 `run_episode()`
 原始代码里，Agent 初始化（读记忆、起定时任务、连 MCP、执行会话开始钩子）和主循环都写在 `__main__`。
@@ -61,7 +61,7 @@ Agent 平时是**人机对话**（人在终端里打字，它调工具干活）�
 
 ### 2.2 `eval` 权限模式：免审批
 平时 Agent 想 `bash` 会停下来问用户（`PermissionManager.ask_user`）。评测时没人回答，会卡死。
-所以加了 **`eval` 模式**：权限检查直接放行（黑名单如 `sudo rm -rf` 仍拒绝，保证不胡跑），无头运行不阻塞。
+所以加了 **`eval` 模式**：权限检查直接放行（黑名单如 `sudo rm -rf` 仍拒绝，保证不胡跑），headless 运行不阻塞。
 
 > 这其实是安全性的取舍：评测时**能自动跑**，但**危险命令黑名单依旧生效**。
 
@@ -238,7 +238,7 @@ LLM 有上下文上限，且输入越长越贵、越慢。长会话里塞满工�
 - **`pyproject.toml`**：`ruff`（行宽 110、py311）、`mypy`（ignore_missing_imports、implicit_optional）、`pytest`（testpaths）。
 - **`requirements-dev.txt`**：`pytest` / `ruff` / `mypy`（开发依赖，与运行时分离）。
 - **CI（`.github/workflows/test.yml`）**：Python 3.11 → 装依赖 → **`ruff check .` → `mypy agents/` → `pytest tests/`** 三件套。
-- **测试**：36 个单测（编译冒烟、TodoManager 校验、MCP 端到端、无头评测 Mock），**用 mock client 不依赖真实 API**。
+- **测试**：36 个单测（编译冒烟、TodoManager 校验、MCP 端到端、headless 评测 Mock），**用 mock client 不依赖真实 API**。
 
 > 只有 CI 绿+可复现，别人（和未来的你）才能相信你贴的分数。
 
@@ -299,7 +299,7 @@ GAIA 的 `gaia.jsonl`/`BENCHMARK_gaia.md`，压测的 `stress_compact.jsonl`，�
 |---|---|
 | Agent / Agent 主循环 | 能自主调用工具解决问题的程序；主循环=「提问→模型→工具→回结果→再提问→…直到答」 |
 | tool_use / tool_result | 模型"请求调用工具" / 工具"执行后的结果" |
-| 无头（headless） | 无需人类交互、由脚本驱动、可批量跑的模式 |
+| headless | 无需人类交互、由脚本驱动、可批量跑的模式 |
 | 沙箱（sandbox） | 隔离环境，任务在独立临时目录跑，跑完即弃，不污染主仓库 |
 | JSONL | 每行一个 JSON 的文本格式，适合逐条记录会话/结果 |
 | SWE-bench | 用真实 GitHub issue 考代码修复的基准 |
@@ -324,4 +324,4 @@ GAIA 的 `gaia.jsonl`/`BENCHMARK_gaia.md`，压测的 `stress_compact.jsonl`，�
 ---
 
 *最后一句总结*：**评测不是打分，而是"用确定性证据，回答『它到底行不行、到底是真变强还是碰运气』"。
-这个仓库把这套从"无头化"到"官方判定"再到"诚实归因"的完整链路做出来了，证据全部可复现、可核验。*
+这个仓库把这套从"headless 化"到"官方判定"再到"诚实归因"的完整链路做出来了，证据全部可复现、可核验。*

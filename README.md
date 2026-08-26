@@ -15,14 +15,14 @@
 - **MCP 接入**：外部 MCP 服务器工具合并进统一工具池，复用同一权限门
 - **Git Worktree 隔离**：按任务创建并行工作线，事件日志全程可审计
 - **健壮容错**：指数退避重试（含随机抖动）、max_tokens 续写、输入超限自动压缩
-- **无头评测**：`bootstrap()` / `run_episode()` 将交互式 REPL 封装为可编程的一次性会话，`eval` 权限模式免审批，沙箱隔离 + JSONL 会话记录，配套 GAIA / SWE-bench 评测框架
+- **headless 评测**：`bootstrap()` / `run_episode()` 将交互式 REPL 封装为可编程的一次性会话，`eval` 权限模式免审批，沙箱隔离 + JSONL 会话记录，配套 GAIA / SWE-bench 评测框架
 
 ## 架构
 
 ```mermaid
 graph TD
     subgraph 入口
-        A["REPL 交互入口<br/>agent_loop()"] --> B["无头评测<br/>bootstrap() / run_episode()"]
+        A["REPL 交互入口<br/>agent_loop()"] --> B["headless 评测<br/>bootstrap() / run_episode()"]
     end
     A --> Loop["主循环<br/>调 LLM → 解析 tool_use → 执行工具 → 回写 tool_result"]
     B --> Loop
@@ -50,7 +50,7 @@ graph TD
 | 调度 | `BackgroundManager` + `CronScheduler` |
 | 隔离 | `WorktreeManager` + `EventBus` |
 | MCP | `agents/mcp_plugin.py` — `MCPClient` / `PluginLoader` / `MCPToolRouter` |
-| 评测 | `agents/eval_runner.py` — 无头 `run_episode` / 沙箱子进程 / 会话记录 |
+| 评测 | `agents/eval_runner.py` — headless `run_episode` / 沙箱子进程 / 会话记录 |
 
 ## 关键设计取舍
 
@@ -58,7 +58,7 @@ graph TD
 
 - **统一权限门**：所有工具（含外部 MCP 工具）执行前都过同一个 `PermissionManager`——黑名单拒绝、规则表匹配、需确认则询问用户。避免各工具自写校验导致的漏检与绕过。
 - **两级上下文压缩**：轻量 `microcompact`（旧工具结果替换为简短标记）+ 重量 `auto_compact`（LLM 分块智能摘要，失败回退原文）；配合超长工具输出落盘 + 预览标记。
-- **子进程沙箱**：无头评测默认在独立临时目录以子进程运行（`run_episode --workdir`），`.tasks/.memory/.team` 建在沙箱内，跑完即弃，评测不被上一次污染。
+- **子进程沙箱**：headless 评测默认在独立临时目录以子进程运行（`run_episode --workdir`），`.tasks/.memory/.team` 建在沙箱内，跑完即弃，评测不被上一次污染。
 - **MCP 前缀路由**：外部工具映射为 `mcp__{server}__{tool}`，与原生工具共用分发表与权限门；插件清单自动发现并拉起服务器（stdio）。
 - **会话回放**：每次 episode 的完整 messages 写 JSONL 到 `.transcripts/`，失败可重放、可做失败复盘。
 
@@ -95,7 +95,7 @@ agent >> 搜索仓库里所有 TODO 注释，汇总到 todo_list.md
 
 - `plan` — 只读模式
 - `build` — 正常读写，危险操作（bash、写入等）需用户确认（默认）
-- `eval` — 评测模式，免审批直接放行（无头评测自动启用）
+- `eval` — 评测模式，免审批直接放行（headless 评测自动启用）
 
 ## 目录结构
 
@@ -103,7 +103,7 @@ agent >> 搜索仓库里所有 TODO 注释，汇总到 todo_list.md
 agents/
   Agent_Harness.py      # 完整 Harness：主循环、工具、权限、钩子、
                         # 记忆、任务、团队、Cron、后台任务、Worktree
-  eval_runner.py        # 无头评测入口：run_episode / 沙箱子进程 / JSONL 会话记录
+  eval_runner.py        # headless 评测入口：run_episode / 沙箱子进程 / JSONL 会话记录
   mcp_plugin.py         # MCP 客户端 / 插件发现 / 工具路由
   README.md             # 能力与工具详细说明
 benchmarks/
@@ -130,7 +130,7 @@ examples/mcp/
 tests/
   test_agents_smoke.py            # 全部 agent 模块的编译冒烟测试
   test_mcp_integration.py         # MCP 客户端 / 路由器 / 插件的端到端测试
-  test_eval_runner.py             # 无头评测（Mock 客户端）单元测试
+  test_eval_runner.py             # headless 评测（Mock 客户端）单元测试
 ```
 
 ## 测试与工程配置
@@ -138,7 +138,7 @@ tests/
 ```sh
 pip install -r requirements.txt -r requirements-dev.txt   # 运行依赖 + 开发依赖
 
-python -m pytest tests/ -q   # 全部单测（含 TodoManager/MCP/无头评测 Mock 测试）
+python -m pytest tests/ -q   # 全部单测（含 TodoManager/MCP/headless 评测 Mock 测试）
 ruff check .                  # lint（pyproject.toml 配置了行宽/规则/排除项）
 mypy agents/                  # 类型检查（渐进式：未标注处不强求）
 ```
@@ -156,9 +156,9 @@ mypy agents/                  # 类型检查（渐进式：未标注处不强求
 
 ## 评测
 
-把"人工驱动的交互式 REPL"重构为"可编程的一次性会话"，可在无头（headless）环境下批量跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`，完整评测数据与失败复盘见 **[`docs/BENCHMARK.md`](docs/BENCHMARK.md)**。
+把"人工驱动的交互式 REPL"重构为"可编程的一次性会话"，可在 headless 环境下批量跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`，完整评测数据与失败复盘见 **[`docs/BENCHMARK.md`](docs/BENCHMARK.md)**。
 
-### 无头评测入口（阶段 1）
+### headless 评测入口（阶段 1）
 
 ```sh
 # 单个任务（当前进程内运行）
@@ -177,7 +177,7 @@ python agents/eval_runner.py "完成任务" --transcript /tmp/ep.jsonl --max-rou
 
 - `bootstrap()` — 统一初始化（记忆 / Cron / SessionStart 钩子 / MCP），REPL 与评测同源
 - `run_episode(prompt, transcript_path, eval_mode, max_rounds)` — 重置全局状态 → 执行主循环 → 返回 `(history, final_reply)`
-- `eval` 权限模式 — `PermissionManager` 免审批放行，无头运行不阻塞等待用户输入
+- `eval` 权限模式 — `PermissionManager` 免审批放行，headless 运行不阻塞等待用户输入
 - `reset_runtime_state()` — 每次 episode 前重置全局单例，防止跨任务状态污染
 - JSONL 会话记录 — 每次 episode 完整对话写入 `.transcripts/`，失败可回放调试
 
