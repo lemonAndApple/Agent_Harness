@@ -10,20 +10,13 @@
 
 ## 0. 一张图看懂全链路
 
-```
-SWE-bench 失败实例（官方判定 FAIL）
-        │  (agent 失败 patch + 失败证据，gold patch 零注入)
-        ▼
-任务1  synth_negatives.py ──► 构造错误对比对 (bad patch ⇄ 修正后的 good patch)
-        │                        + error_type 分类
-        ▼
-任务2  synth_rubric.py    ──► 生成 rubric + LLM-as-judge 判定 (GOOD/BAD) + 质控统计
-        │
-        ▼
-质量检查（schema 校验 / 去重 / 可追溯 / 抽样质检）
-        │
-        ▼
-迭代验证（基线 vs 增广提示 前后对比，报告 Δ + 方差）        ── 已设计，待预算运行
+```mermaid
+flowchart TD
+    S["SWE-bench 失败实例<br/>官方判定 FAIL"] -->|agent 失败 patch + 失败证据<br/>gold patch 零注入| N1
+    N1["任务1 · synth_negatives.py<br/>构造错误对比对（bad patch ⇄ 修正后 good patch）<br/>+ error_type 分类"]
+    N1 --> N2["任务2 · synth_rubric.py<br/>生成 rubric + LLM-as-judge 判定（GOOD/BAD）<br/>+ 质控统计"]
+    N2 --> QC["质量检查<br/>schema 校验 / 去重 / 可追溯 / 抽样质检"]
+    QC --> IT["迭代验证<br/>基线 vs 增广提示 前后对比，报告 Δ + 方差<br/>（已设计，待预算运行）"]
 ```
 
 ---

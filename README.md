@@ -20,23 +20,64 @@
 ## 架构
 
 ```mermaid
-graph TD
-    subgraph 入口
-        A["REPL 交互入口<br/>agent_loop()"] --> B["headless 评测<br/>bootstrap() / run_episode()"]
+flowchart TB
+    %% 分层配色：入口=蓝 · 主循环=橙 · 工具=绿 · 多Agent=青 · 安全=红 · 上下文/记忆=紫 · MCP=黄 · 外部=灰
+    classDef entry fill:#e3f2fd,stroke:#1e88e5,color:#0d47a1
+    classDef loop  fill:#fff3e0,stroke:#fb8c00,color:#e65100
+    classDef tool  fill:#e8f5e9,stroke:#43a047,color:#1b5e20
+    classDef team  fill:#e0f7fa,stroke:#26c6da,color:#006064
+    classDef safe  fill:#ffebee,stroke:#e53935,color:#b71c1c
+    classDef ctx   fill:#f3e5f5,stroke:#ab47bc,color:#6a1b9a
+    classDef mcp   fill:#fff9c4,stroke:#fdd835,color:#827717
+    classDef ext   fill:#eceff1,stroke:#90a4ae,color:#37474f
+
+    subgraph L1["① 入口 / 驱动（二选一）"]
+        direction LR
+        REPL["REPL 交互<br/>agent_loop()"]:::entry
+        EVAL["headless 评测<br/>bootstrap() / run_episode()"]:::entry
     end
-    A --> Loop["主循环<br/>调 LLM → 解析 tool_use → 执行工具 → 回写 tool_result"]
-    B --> Loop
-    Loop --> Gate["统一权限门<br/>PermissionManager (plan / build / eval)"]
-    Loop --> Tools["工具分发表 TOOL_HANDLERS / TOOLS<br/>(37 种工具 + MCP 前缀路由)"]
-    Loop --> Mem["跨会话记忆<br/>MemoryManager"]
-    Loop --> Compact["上下文管理<br/>microcompact / auto_compact 两级压缩"]
-    Tools --> Native["bash / 读 / 写 / 编辑 / 检索 文件"]
-    Tools --> Todo["会话内 Todo + 磁盘任务板 Task"]
-    Tools --> Team["文件消息总线 + TeammateManager<br/>(多 Agent 协作)"]
-    Tools --> MCP["MCP 外部工具<br/>mcp__{server}__{tool} 前缀路由"]
-    Tools --> Worktree["Git Worktree 任务隔离"]
-    Gate --> Ask["REPL：询问用户<br/>eval 模式：免审批直接放行"]
+
+    subgraph L2["② 核心主循环"]
+        direction LR
+        CALL["调用 LLM"]:::loop --> PARSE["解析 tool_use"]:::loop --> PERM["权限检查"]:::loop --> EXEC["执行工具"]:::loop --> BACK["回写 tool_result"]:::loop --> CALL
+    end
+
+    subgraph L3["③ 工具分发表 TOOL_HANDLERS / TOOLS（37 种）"]
+        direction TB
+        NAT["bash / 读 / 写 / 编辑 / 检索"]:::tool
+        TODO["会话内 Todo<br/>磁盘任务板 Task"]:::tool
+        SUB["子代理 task<br/>技能 load_skill"]:::tool
+        TEAM["文件消息总线<br/>TeammateManager"]:::team
+        SCHED["后台任务<br/>Cron 调度"]:::team
+        WT["Git Worktree 隔离"]:::team
+        MCPT["mcp__{server}__{tool}<br/>前缀路由"]:::mcp
+    end
+
+    subgraph L4["④ 共享设施（每个工具都要经过）"]
+        direction LR
+        GATE["统一权限门<br/>PermissionManager<br/>plan / build / eval"]:::safe
+        SEC["BashSecurityValidator<br/>危险命令扫描"]:::safe
+        MEM["MemoryManager<br/>跨会话记忆"]:::ctx
+        CMP["microcompact / auto_compact<br/>两级上下文压缩"]:::ctx
+        HOOK["HookManager<br/>PreToolUse / PostToolUse / SessionStart"]:::ctx
+    end
+
+    subgraph L5["⑤ 外部接入"]
+        direction LR
+        MCP["MCP 服务器<br/>mcp_plugin.py · stdio"]:::mcp
+        LLM["Anthropic 兼容端点"]:::ext
+        SANDBOX["子进程沙箱 / Git Worktree"]:::ext
+    end
+
+    REPL -.-> |启动| CALL
+    EVAL -.-> |一次性会话| CALL
+    EXEC -.-> |分发到具体工具| NAT
+    EXEC -.-> |工具前必须过这道门| GATE
+    MCPT -.-> |剥前缀路由| MCP
 ```
+
+> 自上而下五层：驱动 → 主循环 → 工具池 → 共享设施 → 外部接入。颜色即关注点：
+> 蓝=入口/驱动，橙=主循环，绿=工具，青=多 Agent，红=安全，紫=上下文/记忆，黄=MCP，灰=外部。
 
 | 关注点 | 实现 |
 |---|---|
