@@ -11,8 +11,8 @@
 ## 0. 一张图看懂全链路
 
 <div align="center">
-  <a href="./docs/diagrams/data-pipeline.svg" target="_blank" title="点击放大 / 新标签页查看">
-    <img src="./docs/diagrams/data-pipeline.svg" alt="数据合成 → 质检 → 迭代验证 全链路" width="100%" />
+  <a href="./diagrams/data-pipeline.svg" target="_blank" title="点击放大 / 新标签页查看">
+    <img src="./diagrams/data-pipeline.svg" alt="数据合成 → 质检 → 迭代验证 全链路" width="100%" />
   </a>
   <p><sub>全链路（矢量图，可点击放大/缩放）。从官方判定的失败案例出发，gold patch 零注入。</sub></p>
 </div>

@@ -9,8 +9,8 @@
 ## 1. 系统架构总览
 
 <div align="center">
-  <a href="./docs/diagrams/architecture.svg" target="_blank" title="点击放大 / 新标签页查看">
-    <img src="./docs/diagrams/architecture.svg" alt="Coding Agent Harness 系统架构图" width="100%" />
+  <a href="./diagrams/architecture.svg" target="_blank" title="点击放大 / 新标签页查看">
+    <img src="./diagrams/architecture.svg" alt="Coding Agent Harness 系统架构图" width="100%" />
   </a>
   <p><sub>系统架构总览（矢量图，可点击放大、新标签页内自由缩放/平移）。</sub></p>
 </div>
@@ -18,8 +18,8 @@
 主循环逐轮展开的时序（一回调用 = 一次完整往返）：
 
 <div align="center">
-  <a href="./docs/diagrams/loop-sequence.svg" target="_blank" title="点击放大 / 新标签页查看">
-    <img src="./docs/diagrams/loop-sequence.svg" alt="Agent 主循环时序图" width="100%" />
+  <a href="./diagrams/loop-sequence.svg" target="_blank" title="点击放大 / 新标签页查看">
+    <img src="./diagrams/loop-sequence.svg" alt="Agent 主循环时序图" width="100%" />
   </a>
   <p><sub>主循环时序（矢量图，可点击放大/缩放）。</sub></p>
 </div>
