@@ -10,14 +10,12 @@
 
 ## 0. 一张图看懂全链路
 
-```mermaid
-flowchart TD
-    S["SWE-bench 失败实例<br/>官方判定 FAIL"] -->|agent 失败 patch + 失败证据<br/>gold patch 零注入| N1
-    N1["任务1 · synth_negatives.py<br/>构造错误对比对（bad patch ⇄ 修正后 good patch）<br/>+ error_type 分类"]
-    N1 --> N2["任务2 · synth_rubric.py<br/>生成 rubric + LLM-as-judge 判定（GOOD/BAD）<br/>+ 质控统计"]
-    N2 --> QC["质量检查<br/>schema 校验 / 去重 / 可追溯 / 抽样质检"]
-    QC --> IT["迭代验证<br/>基线 vs 增广提示 前后对比，报告 Δ + 方差<br/>（已设计，待预算运行）"]
-```
+<div align="center">
+  <a href="./docs/diagrams/data-pipeline.svg" target="_blank" title="点击放大 / 新标签页查看">
+    <img src="./docs/diagrams/data-pipeline.svg" alt="数据合成 → 质检 → 迭代验证 全链路" width="100%" />
+  </a>
+  <p><sub>全链路（矢量图，可点击放大/缩放）。从官方判定的失败案例出发，gold patch 零注入。</sub></p>
+</div>
 
 ---
 

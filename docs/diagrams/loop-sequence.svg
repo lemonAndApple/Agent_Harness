@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 780" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, sans-serif" width="100%" height="auto">
+<title>Coding Agent Harness — Main Loop</title>
+<style>.entry{fill:#e3f2fd;stroke:#1e88e5;stroke-width:1.6}text.entry{fill:#0d47a1}.loop{fill:#fff3e0;stroke:#fb8c00;stroke-width:1.6}text.loop{fill:#e65100}.tool{fill:#e8f5e9;stroke:#43a047;stroke-width:1.6}text.tool{fill:#1b5e20}.team{fill:#e0f7fa;stroke:#26c6da;stroke-width:1.6}text.team{fill:#006064}.safe{fill:#ffebee;stroke:#e53935;stroke-width:1.6}text.safe{fill:#b71c1c}.ctx{fill:#f3e5f5;stroke:#ab47bc;stroke-width:1.6}text.ctx{fill:#6a1b9a}.mcp{fill:#fff8e1;stroke:#f9a825;stroke-width:1.6}text.mcp{fill:#7a5b00}.ext{fill:#eceff1;stroke:#90a4ae;stroke-width:1.6}text.ext{fill:#37474f}.flow{stroke:#546e7a;stroke-width:2.2}.soft{stroke:#78909c;stroke-width:1.6;stroke-dasharray:5 4}.edge{font-size:13px;fill:#37474f}text{font-size:15px}</style>
+<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#546e7a"/></marker><marker id="arrO" markerWidth="11" markerHeight="11" refX="7" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="none" stroke="#546e7a"/></marker></defs>
+
+<rect x="45" y="60" width="170" height="40" rx="8" class="entry"/>
+<text x="130" y="80" text-anchor="middle" dominant-baseline="middle" font-size="14" fill="#0d47a1">用户 / 评测驱动</text>
+<line x1="130" y1="120" x2="130" y2="720" class="soft"/>
+<rect x="275" y="60" width="170" height="40" rx="8" class="entry"/>
+<text x="360" y="80" text-anchor="middle" dominant-baseline="middle" font-size="14" fill="#0d47a1">主循环 agent_loop()</text>
+<line x1="360" y1="120" x2="360" y2="720" class="soft"/>
+<rect x="485" y="60" width="170" height="40" rx="8" class="entry"/>
+<text x="570" y="80" text-anchor="middle" dominant-baseline="middle" font-size="14" fill="#0d47a1">PermissionManager</text>
+<line x1="570" y1="120" x2="570" y2="720" class="soft"/>
+<rect x="705" y="60" width="170" height="40" rx="8" class="entry"/>
+<text x="790" y="80" text-anchor="middle" dominant-baseline="middle" font-size="14" fill="#0d47a1">工具（bash/文件/MCP…）</text>
+<line x1="790" y1="120" x2="790" y2="720" class="soft"/>
+<rect x="900" y="60" width="170" height="40" rx="8" class="entry"/>
+<text x="985" y="80" text-anchor="middle" dominant-baseline="middle" font-size="14" fill="#0d47a1">LLM（Anthropic 兼容）</text>
+<line x1="985" y1="120" x2="985" y2="720" class="soft"/>
+<rect x="356" y="180" width="8" height="520" rx="3" fill="#fb8c00" opacity="0.35"/>
+<line x1="130" y1="150" x2="360" y2="150" class="flow" marker-end="url(#arr)"/>
+<text x="245" y="142" text-anchor="middle" class="edge">输入任务</text>
+<line x1="360" y1="210" x2="985" y2="210" class="flow" marker-end="url(#arr)"/>
+<text x="672.5" y="202" text-anchor="middle" class="edge">调 LLM（上传对话历史）</text>
+<line x1="985" y1="250" x2="360" y2="250" class="soft" marker-end="url(#arrO)"/>
+<text x="672.5" y="242" text-anchor="middle" class="edge">assistant（含 tool_use）</text>
+<rect x="320" y="286" width="720" height="330" rx="10" fill="#fff8e1" stroke="#f9a825"/>
+<text x="330" y="308" font-size="14" font-weight="700" fill="#7a5b00">loop  每步工具调用</text>
+<line x1="360" y1="336" x2="570" y2="336" class="flow" marker-end="url(#arr)"/>
+<text x="465" y="328" text-anchor="middle" class="edge">校验 tool_use</text>
+<line x1="570" y1="376" x2="360" y2="376" class="soft" marker-end="url(#arrO)"/>
+<text x="465" y="368" text-anchor="middle" class="edge">allow / deny / ask_user</text>
+<line x1="360" y1="416" x2="790" y2="416" class="flow" marker-end="url(#arr)"/>
+<text x="575" y="408" text-anchor="middle" class="edge">执行工具</text>
+<line x1="790" y1="456" x2="360" y2="456" class="soft" marker-end="url(#arrO)"/>
+<text x="575" y="448" text-anchor="middle" class="edge">tool_result（超长输出落盘 + 预览）</text>
+<line x1="360" y1="496" x2="985" y2="496" class="flow" marker-end="url(#arr)"/>
+<text x="672.5" y="488" text-anchor="middle" class="edge">续接（回填 tool_result）</text>
+<line x1="985" y1="536" x2="360" y2="536" class="soft" marker-end="url(#arrO)"/>
+<text x="672.5" y="528" text-anchor="middle" class="edge">下一条回复</text>
+<line x1="360" y1="690" x2="130" y2="690" class="flow" marker-end="url(#arr)"/>
+<text x="245" y="682" text-anchor="middle" class="edge">最终回答</text>
+</svg>

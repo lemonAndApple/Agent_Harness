@@ -8,90 +8,21 @@
 
 ## 1. 系统架构总览
 
-```mermaid
-flowchart TB
-    %% 配色：入口=蓝 · 主循环=橙 · 工具=绿 · 共享设施=红/紫 · 外部=灰
-    classDef entry fill:#e3f2fd,stroke:#1e88e5,color:#0d47a1
-    classDef loop  fill:#fff3e0,stroke:#fb8c00,color:#e65100
-    classDef tool  fill:#e8f5e9,stroke:#43a047,color:#1b5e20
-    classDef safe  fill:#ffebee,stroke:#e53935,color:#b71c1c
-    classDef ctx   fill:#f3e5f5,stroke:#ab47bc,color:#6a1b9a
-    classDef ext   fill:#eceff1,stroke:#90a4ae,color:#37474f
-
-    subgraph L1["入口层"]
-        direction LR
-        R["REPL：agent_loop()"]:::entry
-        H["headless：bootstrap() / run_episode()"]:::entry
-    end
-
-    subgraph L2["核心主循环 agent_loop()"]
-        direction LR
-        M["调 LLM → 解析 tool_use → 权限检查 → 执行 → 回写"]:::loop
-    end
-
-    subgraph L3["工具层"]
-        direction TB
-        B["bash / 文件 / 检索"]:::tool
-        TODO["TodoItem / TaskManager"]:::tool
-        TA["MessageBus + TeammateManager"]:::tool
-        WT["Worktree + EventBus"]:::tool
-        BG["BackgroundManager + CronScheduler"]:::tool
-        MC["mcp__{server}__{tool} 前缀路由"]:::tool
-    end
-
-    subgraph L4["共享设施（贯穿工具）"]
-        direction LR
-        PM["PermissionManager<br/>统一权限门"]:::safe
-        BSV["BashSecurityValidator<br/>危险命令扫描"]:::safe
-        MM["MemoryManager<br/>跨会话记忆"]:::ctx
-        CMPT["microcompact / auto_compact<br/>两级压缩"]:::ctx
-        HK["HookManager<br/>Pre/Post/SessionStart"]:::ctx
-    end
-
-    subgraph L5["外部"]
-        direction LR
-        MCP["MCP 服务器（stdio）"]:::ext
-        LLM["Anthropic 兼容端点"]:::ext
-    end
-
-    R --> M
-    H --> M
-    M --> B
-    M --> TODO
-    M --> TA
-    M --> WT
-    M --> BG
-    M --> MC
-    M --> PM
-    M --> CMPT
-    MC --> MCP
-    PM --> BSV
-```
+<div align="center">
+  <a href="./docs/diagrams/architecture.svg" target="_blank" title="点击放大 / 新标签页查看">
+    <img src="./docs/diagrams/architecture.svg" alt="Coding Agent Harness 系统架构图" width="100%" />
+  </a>
+  <p><sub>系统架构总览（矢量图，可点击放大、新标签页内自由缩放/平移）。</sub></p>
+</div>
 
 主循环逐轮展开的时序（一回调用 = 一次完整往返）：
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as 用户 / 评测驱动
-    participant A as 主循环 agent_loop()
-    participant G as PermissionManager
-    participant T as 工具（bash/文件/MCP…）
-    participant L as LLM（Anthropic 兼容端点）
-
-    U->>A: 输入任务
-    A->>L: 调 LLM（上传对话历史）
-    L-->>A: assistant（含 tool_use）
-    loop 每步工具调用
-        A->>G: 校验 tool_use
-        G-->>A: allow / deny / ask_user
-        A->>T: 执行工具
-        T-->>A: tool_result（超长输出落盘 + 预览标记）
-        A->>L: 续接（回填 tool_result）
-        L-->>A: 下一条回复
-    end
-    A-->>U: 最终回答
-```
+<div align="center">
+  <a href="./docs/diagrams/loop-sequence.svg" target="_blank" title="点击放大 / 新标签页查看">
+    <img src="./docs/diagrams/loop-sequence.svg" alt="Agent 主循环时序图" width="100%" />
+  </a>
+  <p><sub>主循环时序（矢量图，可点击放大/缩放）。</sub></p>
+</div>
 
 模块划分：主循环（`agent_loop`）、工具分发表（`TOOL_HANDLERS`/`TOOLS`）、
 安全（`BashSecurityValidator` + `PermissionManager`）、钩子（`HookManager`）、

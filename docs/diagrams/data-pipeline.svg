@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 870" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, sans-serif" width="100%" height="auto">
+<title>Data Synthesis → QC → Iteration</title>
+<style>.entry{fill:#e3f2fd;stroke:#1e88e5;stroke-width:1.6}text.entry{fill:#0d47a1}.loop{fill:#fff3e0;stroke:#fb8c00;stroke-width:1.6}text.loop{fill:#e65100}.tool{fill:#e8f5e9;stroke:#43a047;stroke-width:1.6}text.tool{fill:#1b5e20}.team{fill:#e0f7fa;stroke:#26c6da;stroke-width:1.6}text.team{fill:#006064}.safe{fill:#ffebee;stroke:#e53935;stroke-width:1.6}text.safe{fill:#b71c1c}.ctx{fill:#f3e5f5;stroke:#ab47bc;stroke-width:1.6}text.ctx{fill:#6a1b9a}.mcp{fill:#fff8e1;stroke:#f9a825;stroke-width:1.6}text.mcp{fill:#7a5b00}.ext{fill:#eceff1;stroke:#90a4ae;stroke-width:1.6}text.ext{fill:#37474f}.flow{stroke:#546e7a;stroke-width:2.2}.soft{stroke:#78909c;stroke-width:1.6;stroke-dasharray:5 4}.edge{font-size:13px;fill:#37474f}text{font-size:15px}</style>
+<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#546e7a"/></marker><marker id="arrO" markerWidth="11" markerHeight="11" refX="7" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="none" stroke="#546e7a"/></marker></defs>
+
+<rect x="240" y="40" width="520" height="104" rx="9" class="safe"/><text x="500" y="82" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#b71c1c">SWE-bench 失败实例</text><text x="500" y="102" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#b71c1c">官方判定 FAIL</text>
+<rect x="240" y="200" width="520" height="104" rx="9" class="tool"/><text x="500" y="242" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#1b5e20">任务1 · synth_negatives.py</text><text x="500" y="262" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#1b5e20">构造错误对比对（bad ⇄ 修正 good）+ 分类</text>
+<rect x="240" y="360" width="520" height="104" rx="9" class="tool"/><text x="500" y="402" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#1b5e20">任务2 · synth_rubric.py</text><text x="500" y="422" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#1b5e20">生成 rubric + LLM-as-judge 判定 + 质控统计</text>
+<rect x="240" y="520" width="520" height="104" rx="9" class="ctx"/><text x="500" y="562" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#6a1b9a">质量检查</text><text x="500" y="582" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#6a1b9a">schema 校验 / 去重 / 可追溯 / 抽样质检</text>
+<rect x="240" y="680" width="520" height="104" rx="9" class="team"/><text x="500" y="722" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#006064">迭代验证</text><text x="500" y="742" text-anchor="middle" dominant-baseline="middle" font-size="15" fill="#006064">基线 vs 增广 前后对比，报告 Δ + 方差</text>
+<line x1="500" y1="144" x2="500" y2="200" class="flow" marker-end="url(#arr)"/>
+<line x1="500" y1="304" x2="500" y2="360" class="flow" marker-end="url(#arr)"/>
+<line x1="500" y1="464" x2="500" y2="520" class="flow" marker-end="url(#arr)"/>
+<line x1="500" y1="624" x2="500" y2="680" class="flow" marker-end="url(#arr)"/>
+<text x="60" y="844" font-size="13" fill="#546e7a">注：全程仅用 agent 失败 patch，gold patch 零注入；</text>
+<text x="60" y="864" font-size="13" fill="#546e7a">迭代验证必须做“基线 vs 增广”的配对对比并报告方差，当前已设计、待预算运行。</text>
+</svg>
