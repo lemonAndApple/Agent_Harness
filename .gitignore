@@ -249,9 +249,10 @@ logs/
 agents/s*.py
 agents/*.txt
 agents/resume.md
+*.docx
 对话历史.txt
 docs/*
-# 设计/评测文档是面向面试的可交付物，纳入版本控制（其余 docs/ 保持忽略）
+# 设计/评测文档纳入版本控制（其余 docs/ 保持忽略）
 !docs/DESIGN.md
 !docs/BENCHMARK.md
 !docs/eval-stress-roadmap.md

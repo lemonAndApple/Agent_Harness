@@ -42,7 +42,7 @@
 
 ## 阶段 4 · 压测
 
-- `stress_compact.py`：合成长历史触发 `auto_compact`，实测压缩前后 token 与耗时 → **补简历 `[待填，长会话输入 token 减少约 ×%]` 缺口**。
+- `stress_compact.py`：合成长历史触发 `auto_compact`，实测压缩前后 token 与耗时 → **补长会话输入 token 减少约 ×% 的实测数据**。
 - `stress_team.py`：K 队友并发抢同一任务，断言唯一 winner，记录 p50/p95。
 - `stress_bus.py`：N 写 × M 读下断言消息零丢失零损坏，测吞吐。
 - 工具：`concurrent.futures` + `pytest-benchmark`，profile 用 cProfile / memray。
@@ -52,11 +52,11 @@
 ## 阶段 5 · 沉淀
 
 - `benchmarks/results/` 汇总表格 + 一份 BENCHMARK.md，记录配置、模型、成本、通过率。
-- 真实数字反哺简历：SWE-bench resolve rate、压缩省 token 实测、并发吞吐。
+- 真实数字沉淀：SWE-bench resolve rate、压缩省 token 实测、并发吞吐。
 
 ---
 
 ## 提醒
 
-- **时间线建议**：SWE-bench 全流程（含首批 30 条）建议 2 周内完成，压测 1 周，之后数字即可写入简历投实习。
-- **诚信底线**：SWE-bench 严禁用 gold patch 污染 prompt，评测脚本与数据下载记录要留档，避免面试被追问时无法自证。
+- **时间线建议**：SWE-bench 全流程（含首批 30 条）建议 2 周内完成，压测 1 周，之后数字即可沉淀为可复现结果。
+- **诚信底线**：SWE-bench 严禁用 gold patch 污染 prompt，评测脚本与数据下载记录要留档，保证全程可核验。

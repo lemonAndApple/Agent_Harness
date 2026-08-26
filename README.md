@@ -61,7 +61,6 @@ graph TD
 - **子进程沙箱**：无头评测默认在独立临时目录以子进程运行（`run_episode --workdir`），`.tasks/.memory/.team` 建在沙箱内，跑完即弃，评测不被上一次污染。
 - **MCP 前缀路由**：外部工具映射为 `mcp__{server}__{tool}`，与原生工具共用分发表与权限门；插件清单自动发现并拉起服务器（stdio）。
 - **会话回放**：每次 episode 的完整 messages 写 JSONL 到 `.transcripts/`，失败可重放、可做失败复盘。
-- 与 Claude Code 的关系、与 LangGraph 的对比：见 [`docs/DESIGN.md`](docs/DESIGN.md) 第 1、5 节。
 
 ## 快速开始
 
@@ -118,7 +117,7 @@ benchmarks/
   visualize.py          # 结果可视化（dashboard / per_repo / per_instance 图表）
   results/              # 评测结果留档（JSONL + BENCHMARK_{name}.md + 合成数据 + 可视化图表）
 docs/
-  DESIGN.md             # 设计文档：与 Claude Code 的关系 + 关键设计取舍
+  DESIGN.md             # 设计文档：系统架构 + 关键设计取舍
   BENCHMARK.md          # 评测报告：SWE-bench 官方判定 + 失败复盘 + GAIA 口径
   DATA_PIPELINE.md      # 数据流水线：合成数据规范 + 质检规则 + 迭代验证方法
   eval-stress-roadmap.md# 评测与压测接入路线图
