@@ -14,11 +14,10 @@
 5. [评测二：GAIA（通用问答/推理）](#5-评测二gaia通用问答推理)
 6. [评测三：长会话压测 auto_compact](#6-评测三长会话压测-auto_compact)
 7. [评测之外：数据合成（从失败里长出新数据）](#7-评测之外数据合成从失败里长出新数据)
-8. [评测之外：后训练（LoRA 微调 + 前后对比）](#8-评测之外后训练lora-微调--前后对比)
-9. [工程可信度：让评测"可复现、可自动跑"](#9-工程可信度让评测可复现可自动跑)
-10. [两套口径与诚实原则](#10-两套口径与诚实原则)
-11. [如何自己复现](#11-如何自己复现)
-12. [术语表](#12-术语表)
+8. [工程可信度：让评测"可复现、可自动跑"](#8-工程可信度让评测可复现可自动跑)
+9. [两套口径与诚实原则](#9-两套口径与诚实原则)
+10. [如何自己复现](#10-如何自己复现)
+11. [术语表](#11-术语表)
 
 ---
 
@@ -38,7 +37,7 @@
 | SWE-bench | 读真实 GitHub issue，改真实仓库代码 | 跑官方单元测试（FAIL_TO_PASS / PASS_TO_PASS） |
 | GAIA | 通用常识/推理问答（非工程） | 精确匹配 + LLM-as-judge |
 | auto_compact 压测 | 会话太长时，压缩省多少 token | 前后 token 对比 |
-| 数据合成 + LoRA | "数据→训练→再评测"能否提升 | 前后 pass@1 对比（含方差） |
+| 数据合成 | 从真实失败案例生成"反例/修正"数据 | 规范 + 质检 + LLM-as-judge 判分 |
 
 **贯穿本报告的一条主线：区分"真的能行"和"看着行"**。我会反复强调两套口径，以及"提升是真还是碰运气"。
 
@@ -83,7 +82,7 @@ Agent 平时是**人机对话**（人在终端里打字，它调工具干活）�
 ## 3. 项目做了什么评测
 
 - **结果来源**：模型为 `deepseek-chat`（Anthropic 兼容端点，见 `.env.example`）。
-- **四种评测**：SWE-bench、GAIA、auto_compact 压测、数据合成+LoRA。
+- **四种评测**：SWE-bench、GAIA、auto_compact 压测、数据合成（失败案例 → 合成数据）。
 - **全程纪律（诚信底线）**：**严禁把 gold patch / test patch 注入模型输入**（否则评测毫无意义，等于作弊）。
   这是整个报告反复强调的"防泄漏"。
 
@@ -233,47 +232,7 @@ LLM 有上下文上限，且输入越长越贵、越慢。长会话里塞满工�
 
 ---
 
-## 8. 评测之外：后训练（LoRA 微调 + 前后对比）
-
-### 8.1 名词解释
-- **LoRA**：一种**轻量微调**方式。不重新训练整个大模型，只在注意力/全连接层旁边挂上**很小的可训练矩阵**（本例 9.23M 参数，仅占 0.59%），训练这些即可改变行为。省显存、快。
-- **SFT**：用"输入→期望输出"的监督数据微调基座。
-- **pass@1**：给定 N 道题，模型**一次**就能做对的**比例**（本文用贪心解码，即"确定性一次"）。
-
-### 8.2 流程
-```
-1. 数据：codeparrot-clean（真实 Python 代码）3000 条，做补全式 SFT
-2. 训练：LoRA(r=8) → Qwen2.5-Coder-1.5B，2 epochs / 700 步，bf16
-   train_loss 0.907 → eval_loss 0.951（冻结 200 条）
-3. 评测：HumanEval pass@1（跑官方 test 判对错，非 LLM 自判）
-   在 n=20、4 个 seed 上做【配对】前后对比（base vs base+LoRA，同 seed 同题集）
-   （用多卡并行加速评测）
-```
-
-### 8.3 结果（诚实呈现）
-| seed | base | +LoRA | Δ |
-|---|---|---|---|
-| 0 | .40 | .35 | −.05 |
-| 1 | .25 | .10 | −.15 |
-| 2 | .50 | .35 | −.15 |
-| 3 | .40 | .40 | 0.00 |
-| **均值** | **.388** | **.300** | **−.088**（标准差 0.09–0.12） |
-
-另：单卡 25 题 seed0 的一次对比为 0.68 → 0.68（逐题 23/25 一致、2 题对调）。
-
-### 8.4 为什么没提升（这才是重点）
-- **基座对训练数据"分布内"**：Qwen2.5-Coder-1.5B 预训练时就见过海量类似代码，codeparrot 对它没有新增信息，LoRA 只是再拟合风格。
-- **train_loss 降 ≠ 泛化提升**：损失下降只说明它"记住/贴合"了训练数据，不说明能在新题（HumanEval）上更强。
-- **Δ=−0.088 在噪声内**：没法宣称"有效提升"，也不显著。
-
-**结论（本报告最想强调的）**：这次微调**如实呈报"无提升"**。它的价值不在分数，而在**证明了我能"做完整闭环 + 诚实归因"**——
-即"合成/训练数据 → 微调 → 客观可执行评测 → 配对前后对比 + 方差 → 如实下结论"，不虚称"变强"。
-
-> 补充：基座 1.5B 远弱于本仓库主评测用的 deepseek-chat，所以此实验**用于展示方法论**，不用于比较模型强弱。
-
----
-
-## 9. 工程可信度：让评测"可复现、可自动跑"
+## 8. 工程可信度：让评测"可复现、可自动跑"
 
 评测要可信，工程必须跟得上：
 - **`pyproject.toml`**：`ruff`（行宽 110、py311）、`mypy`（ignore_missing_imports、implicit_optional）、`pytest`（testpaths）。
@@ -285,7 +244,7 @@ LLM 有上下文上限，且输入越长越贵、越慢。长会话里塞满工�
 
 ---
 
-## 10. 两套口径与诚实原则
+## 9. 两套口径与诚实原则
 
 评测里最容易"自欺"的就是**口径含糊**。本项目刻意区分三套口径，绝不混用：
 
@@ -302,7 +261,7 @@ LLM 有上下文上限，且输入越长越贵、越慢。长会话里塞满工�
 
 ---
 
-## 11. 如何自己复现
+## 10. 如何自己复现
 
 ```sh
 # 依赖
@@ -325,18 +284,16 @@ python benchmarks/stress_compact.py --target-chars 500000
 python benchmarks/synth_negatives.py --max 4 --name synth_negatives
 python benchmarks/synth_rubric.py --name synth_negatives --out synth_rubric
 
-# 微调 + 前后对比（真实 GPU）
-CUDA_VISIBLE_DEVICES=6 python scripts/lora_train.py --train /tmp/opencode/ft/train.jsonl --out /tmp/opencode/ft/out
-python scripts/ft_eval_parallel.py --model Qwen/Qwen2.5-Coder-1.5B --n 20 --seeds 0 1 2 3
-python scripts/ft_eval_parallel.py --model Qwen/Qwen2.5-Coder-1.5B --lora /tmp/opencode/ft/out --n 20 --seeds 0 1 2 3
+```
+# 数据合成已属"数据准备"，不在本报告复现（见 docs/DATA_PIPELINE.md）
 ```
 
 原始数据都在 `benchmarks/results/`：SWE-bench 的 `swebench.jsonl`/`swebench_local.json`/`predictions_swebench.json`，
-GAIA 的 `gaia.jsonl`/`BENCHMARK_gaia.md`，压测的 `stress_compact.jsonl`，合成的 `synth_*.jsonl`，LoRA 的 `SFT_LORA.md`。
+GAIA 的 `gaia.jsonl`/`BENCHMARK_gaia.md`，压测的 `stress_compact.jsonl`，合成的 `synth_*.jsonl`。
 
 ---
 
-## 12. 术语表
+## 11. 术语表
 
 | 术语 | 通俗解释 |
 |---|---|
@@ -361,7 +318,6 @@ GAIA 的 `gaia.jsonl`/`BENCHMARK_gaia.md`，压测的 `stress_compact.jsonl`，�
 | auto_compact / microcompact | 重量级(LLM 摘要)/轻量级(替换旧结果) 上下文压缩 |
 | 合成数据 / 负例 / 正例 | 用 LLM 造的数据 / 错误样例 / 正确样例 |
 | rubric / LLM-as-judge | 判分标准 / 用模型判分 |
-| LoRA / SFT / pass@1 | 轻量微调 / 监督微调 / 一次做对的比例 |
 | CI（持续集成） | 每次 push 自动跑 lint/类型/测试 |
 | mock / Mock 客户端 | 假客户端，提前预设返回，让测试不花钱不联网 |
 

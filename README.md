@@ -121,14 +121,9 @@ docs/
   DESIGN.md             # 设计文档：与 Claude Code 的关系 + 关键设计取舍
   BENCHMARK.md          # 评测报告：SWE-bench 官方判定 + 失败复盘 + GAIA 口径
   DATA_PIPELINE.md      # 数据流水线：合成数据规范 + 质检规则 + 迭代验证方法
-  SFT_LORA.md           # 微调实验报告：真实 LoRA + HumanEval 配对前后对比（Δ 无提升，如实标注）
   eval-stress-roadmap.md# 评测与压测接入路线图
 scripts/
   reproduce_benchmark.sh# 一键复现 SWE-bench（patch 生成 → 官方判定 → 沉淀）
-  finetune_lora.sh      # 合成数据→LoRA 入口（环境自检 + 运行计划）
-  lora_train.py         # 真实 LoRA 训练（公开代码语料，GPU 可跑）
-  ft_eval.py            # HumanEval pass@1 单卡评测
-  ft_eval_parallel.py   # HumanEval 跨多卡并行评测（base vs lora 配对对比）
 examples/mcp/
   echo_server.py        # 极简 stdio MCP 服务器（echo/add/upper）
   db_server.py          # 基于 SQLite 的 MCP 服务器（只读 SQL、建表语句、笔记写入）
@@ -291,12 +286,10 @@ python benchmarks/swebench_eval.py --ids django__django-10087,pallets__flask-404
 ```
 
 数据规范、质检规则、迭代验证方法与诚实边界见
-[`docs/DATA_PIPELINE.md`](docs/DATA_PIPELINE.md)；**微调已实跑**（真实 LoRA + HumanEval 配对前后对比，
-**Δ≈−0.09、无提升、如实标注**）见 [`docs/SFT_LORA.md`](docs/SFT_LORA.md)。
+[`docs/DATA_PIPELINE.md`](docs/DATA_PIPELINE.md)。
 
 > 诚信底线：正例是 **LLM 合成的"修正 patch"，不是 gold patch**；`gold_patch_used` 恒为 `False`。
-> 微调（LoRA）已真实执行并做**配对前后评测**，结果为"无提升（噪声内）"，**未虚称提升**；
-> 用于后训练的脚本见 `scripts/lora_train.py`、`scripts/ft_eval*.py`。
+> "前后对比"是否算提升，必须以**配对 + 方差 + 官方测试**判定，未跑通则**不虚称**。
 
 ## 测试与 CI
 
