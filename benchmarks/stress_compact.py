@@ -42,9 +42,9 @@ def _code_dump(n: int) -> str:
         lines.append(f"def func_{i}(a: int, b: int) -> int:")
         lines.append(f"    \"\"\"Function {i} adds two numbers.\"\"\"")
         lines.append(f"    result = a + b + {i}")
-        lines.append(f"    if result > 1000:")
-        lines.append(f"        log.debug(f'large result: {{result}}')")
-        lines.append(f"    return result")
+        lines.append("    if result > 1000:")
+        lines.append("        log.debug(f'large result: {result}')")
+        lines.append("    return result")
     return "\n".join(lines)
 
 

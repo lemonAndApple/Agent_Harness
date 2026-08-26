@@ -61,7 +61,7 @@ def run_episode(prompt: str, workdir: Path = None, transcript: Path = None, # ty
 
 
 def _run_episode_subprocess(prompt: str, workdir: Path,
-                            transcript: Path, max_rounds: int) -> dict: # type: ignore
+                            transcript: Path = None, max_rounds: int = None) -> dict: # type: ignore
     """沙箱隔离：在独立工作目录内启动子进程运行 episode。
 
     子进程继承 .env 环境变量（API key / base url），cwd 指向沙箱目录，

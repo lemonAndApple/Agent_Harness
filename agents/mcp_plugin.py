@@ -28,9 +28,9 @@ mcp_plugin.py - MCP（Model Context Protocol）接入与插件系统
 
 import json
 import os
-import subprocess   
-import threading
-from pathlib import Path    
+import subprocess
+from pathlib import Path
+from typing import Any
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -46,8 +46,8 @@ PERMISSION_MODES = ("default", "auto")
 # client / MODEL 依赖环境变量（MODEL_ID），延迟到 main() 再创建。
 # 这样本模块被 import 时没有任何副作用，Agent_Harness 等宿主
 # 可以直接复用下面的纯类（MCPClient / PluginLoader / MCPToolRouter）。
-client = None
-MODEL = None
+client: Any = None
+MODEL: Any = None
 
 
 class CapabilityPermissionGate:
@@ -66,13 +66,13 @@ class CapabilityPermissionGate:
         self.mode = mode if mode in PERMISSION_MODES else "default"
 
     '''
-    这是核心方法，输入工具名和参数，输出一个字典，包含：                      
-                                                                               
-     - source: "mcp" 还是 "native"（本地）                                     
-     - server: 如果是 MCP 工具，是哪个服务器                                   
-     - tool: 实际的工具名                                                      
-     - risk: 风险等级 "read" / "write" / "high"  
-    ''' 
+    这是核心方法，输入工具名和参数，输出一个字典，包含：
+
+     - source: "mcp" 还是 "native"（本地）
+     - server: 如果是 MCP 工具，是哪个服务器
+     - tool: 实际的工具名
+     - risk: 风险等级 "read" / "write" / "high"
+    '''
     def normalize(self, tool_name: str, tool_input: dict) -> dict:
         if tool_name.startswith("mcp__"):
             # 去掉 "mcp__" 前缀后，按最后一个 "__" 切分：
@@ -169,7 +169,7 @@ class MCPClient:
         self.env = {**os.environ, **(env or {})}
         self.process = None
         self._request_id = 0
-        self._tools = []  # 缓存的工具列表
+        self._tools: list = []  # 缓存的工具列表
 
     def connect(self):
         """启动MCP服务器进程。"""
@@ -285,8 +285,8 @@ class PluginLoader:
 
     def __init__(self, search_dirs: list = None):
         self.search_dirs = search_dirs or [WORKDIR]
-        self.plugins = {}  # 名称 -> manifest
-        self._plugin_dirs = {}  # 名称 -> 插件所在目录（用于解析相对路径）
+        self.plugins: dict = {}  # 名称 -> manifest
+        self._plugin_dirs: dict = {}  # 名称 -> 插件所在目录（用于解析相对路径）
 
     def scan(self) -> list:
         """扫描目录中的.claude-plugin/plugin.json清单文件。"""

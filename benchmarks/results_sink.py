@@ -59,14 +59,14 @@ def summarize(results: list) -> dict:
 
 
 def write_benchmark_md(name: str = "eval", model: str = "", config: str = "") -> Path:
-    """把汇总结果沉淀为 BENCHMARK.md。"""
+    """把汇总结果沉淀为 BENCHMARK_{name}.md（每个数据集独立成文件，互不覆盖）。"""
     results = load_results(name)
     summary = summarize(results)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = RESULTS_DIR / "BENCHMARK.md"
+    path = RESULTS_DIR / f"BENCHMARK_{name}.md"
 
     lines = [
-        "# BENCHMARK",
+        f"# BENCHMARK [{name}]",
         "",
         f"- 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"- 数据集: {name}",

@@ -1,0 +1,36 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+# 学习/草稿脚本与外部样例不属于交付物，不做 lint
+exclude = [
+    "agents/s_learn",
+    "examples",
+    "web",
+    "skills",
+    "docs",
+]
+
+[tool.ruff.lint]
+# 收敛到"发现真实错误/隐患"的核心规则；代码库注释含大量中文，RUF 的
+# ambiguous-unicode 类规则（RUF002/RUF003）会产生噪音，故不启用。
+# 整个代码库采用 mypy `implicit_optional`（`X = None` 视为 `Optional[X]`）风格，
+# 与 RUF013 冲突，严格 Optional 改写在 Phase 3 拆包后统一进行。
+select = ["E", "F", "W"]
+# 单文件 Agent_Harness.py（约 3300 行）存在大量 >110 字符行，属于 Phase 3
+# 拆包时自然会拆分；Phase 1 先收敛到"真实错误"，E501 仅为风格规则，
+# split 后重新启用（line-length=110 作为既定标准）。
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+# 允许缺失第三方/外部类型（anthropic、datasets 等）
+ignore_missing_imports = true
+# 代码库统一用 `X = None` 表示可空默认值（对应关闭 RUF013）
+implicit_optional = true
+# 渐进式类型：先只对已标注函数/变量做严格检查，未标注处不强求
+check_untyped_defs = false
+exclude = ["agents/s_learn/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

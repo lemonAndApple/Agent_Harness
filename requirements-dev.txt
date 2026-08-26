@@ -1,0 +1,4 @@
+# Dev / CI dependencies (not needed at runtime)
+pytest
+ruff
+mypy

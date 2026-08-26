@@ -108,7 +108,6 @@ def load_swebench(max_items: int = None, lite: bool = True, ids: list = None) ->
 
 def setup_repo(item: dict) -> Path:
     """clone 仓库并 checkout 到 base_commit，返回工作目录。"""
-    repo_name = _safe_repo_name(item["repo"])
     workdir = WORK_ROOT / item["id"]
     if workdir.exists():
         shutil.rmtree(workdir)
@@ -200,11 +199,47 @@ def _patch_validity(model_patch: str, item: dict) -> tuple[bool, list]:
     return bool(hit), sorted(hit)
 
 
+def _augment_context(path: str = None) -> str:
+    """从合成负例（synth_negatives.jsonl）构造"需避免的失败模式"上下文。
+
+    仅使用合成样本里的 error_type + reasoning + 失败 patch 摘要，绝不包含 gold patch。
+    若未提供 path 或文件不可读，返回空串（即不增强）。
+    """
+    if not path:
+        return ""
+    p = Path(path)
+    if not p.exists():
+        print(f"[swebench][augment] 未找到 {path}，跳过增强")
+        return ""
+    tips = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        et = r.get("error_type", "unknown")
+        rz = r.get("reasoning", "")
+        tips.append(f"- error_type={et}: {rz[:240]}")
+    if not tips:
+        return ""
+    head = (
+        "The following are KNOWN failure modes observed on similar problems. "
+        "Avoid repeating them:\n" + "\n".join(tips)
+    )
+    return head
+
+
 def run_swebench(max_items: int = None, run_tests: bool = False,
-                 lite: bool = True, name: str = "swebench", ids: list = None) -> None: # type: ignore
+                 lite: bool = True, name: str = "swebench", ids: list = None,
+                 augment: str = None) -> None: # type: ignore
     """运行 SWE-bench 评测。"""
     items = load_swebench(max_items, lite, ids)
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
+    augment_ctx = _augment_context(augment)
+    if augment_ctx:
+        print("[swebench] 已启用合成负例增强（baseline => augmented 对比）")
 
     for i, item in enumerate(items):
         t0 = time.time()
@@ -218,8 +253,11 @@ def run_swebench(max_items: int = None, run_tests: bool = False,
             print(f"[{i + 1}/{len(items)}] {item['id']} SETUP ERROR: {e}")
             continue
         try:
+            prompt = item["problem_statement"]
+            if augment_ctx:
+                prompt = augment_ctx + "\n\n# Task\n" + prompt
             result = run_episode(
-                item["problem_statement"],
+                prompt,
                 workdir=repo_dir,
                 max_rounds=30,
                 subprocess_mode=True,
@@ -270,6 +308,7 @@ if __name__ == "__main__":
     parser.add_argument("--run-tests", action="store_true", help="用 gold test patch 做 PASS/FAIL 校验")
     parser.add_argument("--name", default="swebench", help="结果名")
     parser.add_argument("--ids", default="", help="逗号分隔的 instance_id 白名单（如 --ids a__a-1,b__b-2）")
+    parser.add_argument("--augment", default=None, help="注入合成负例（synth_negatives.jsonl）做前后对比")
     args = parser.parse_args()
     ids = [x.strip() for x in args.ids.split(",") if x.strip()] if args.ids else None
-    run_swebench(args.max, args.run_tests, args.lite, args.name, ids)
+    run_swebench(args.max, args.run_tests, args.lite, args.name, ids, args.augment)

@@ -250,7 +250,12 @@ agents/s*.py
 agents/*.txt
 agents/resume.md
 对话历史.txt
-docs/
+docs/*
+# 设计/评测文档是面向面试的可交付物，纳入版本控制（其余 docs/ 保持忽略）
+!docs/DESIGN.md
+!docs/BENCHMARK.md
+!docs/eval-stress-roadmap.md
+!docs/DATA_PIPELINE.md
 skills/
 web/
 README-zh.md

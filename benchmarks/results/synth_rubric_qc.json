@@ -1,0 +1,10 @@
+{
+  "total": 3,
+  "good": 3,
+  "bad": 0,
+  "good_ratio": 1.0,
+  "avg_confidence": 0.8667,
+  "low_confidence_sample_ids": [],
+  "confounder_note": "同一模型合成+判定存在自说自话偏差；建议人工抽查 + 跨模型交叉 judge",
+  "manual_review_flag": true
+}

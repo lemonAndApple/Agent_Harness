@@ -19,6 +19,25 @@
 
 ## 架构
 
+```mermaid
+graph TD
+    subgraph 入口
+        A["REPL 交互入口<br/>agent_loop()"] --> B["无头评测<br/>bootstrap() / run_episode()"]
+    end
+    A --> Loop["主循环<br/>调 LLM → 解析 tool_use → 执行工具 → 回写 tool_result"]
+    B --> Loop
+    Loop --> Gate["统一权限门<br/>PermissionManager (plan / build / eval)"]
+    Loop --> Tools["工具分发表 TOOL_HANDLERS / TOOLS<br/>(37 种工具 + MCP 前缀路由)"]
+    Loop --> Mem["跨会话记忆<br/>MemoryManager"]
+    Loop --> Compact["上下文管理<br/>microcompact / auto_compact 两级压缩"]
+    Tools --> Native["bash / 读 / 写 / 编辑 / 检索 文件"]
+    Tools --> Todo["会话内 Todo + 磁盘任务板 Task"]
+    Tools --> Team["文件消息总线 + TeammateManager<br/>(多 Agent 协作)"]
+    Tools --> MCP["MCP 外部工具<br/>mcp__{server}__{tool} 前缀路由"]
+    Tools --> Worktree["Git Worktree 任务隔离"]
+    Gate --> Ask["REPL：询问用户<br/>eval 模式：免审批直接放行"]
+```
+
 | 关注点 | 实现 |
 |---|---|
 | 主循环 | `agent_loop()` — 权限检查、Pre/Post 钩子、错误恢复、异步通知 |
@@ -32,6 +51,17 @@
 | 隔离 | `WorktreeManager` + `EventBus` |
 | MCP | `agents/mcp_plugin.py` — `MCPClient` / `PluginLoader` / `MCPToolRouter` |
 | 评测 | `agents/eval_runner.py` — 无头 `run_episode` / 沙箱子进程 / 会话记录 |
+
+## 关键设计取舍
+
+每一项都围绕"动机 / 怎么做 / 代价 / 如何验证"，完整展开见 [`docs/DESIGN.md`](docs/DESIGN.md)。
+
+- **统一权限门**：所有工具（含外部 MCP 工具）执行前都过同一个 `PermissionManager`——黑名单拒绝、规则表匹配、需确认则询问用户。避免各工具自写校验导致的漏检与绕过。
+- **两级上下文压缩**：轻量 `microcompact`（旧工具结果替换为简短标记）+ 重量 `auto_compact`（LLM 分块智能摘要，失败回退原文）；配合超长工具输出落盘 + 预览标记。
+- **子进程沙箱**：无头评测默认在独立临时目录以子进程运行（`run_episode --workdir`），`.tasks/.memory/.team` 建在沙箱内，跑完即弃，评测不被上一次污染。
+- **MCP 前缀路由**：外部工具映射为 `mcp__{server}__{tool}`，与原生工具共用分发表与权限门；插件清单自动发现并拉起服务器（stdio）。
+- **会话回放**：每次 episode 的完整 messages 写 JSONL 到 `.transcripts/`，失败可重放、可做失败复盘。
+- 与 Claude Code 的关系、与 LangGraph 的对比：见 [`docs/DESIGN.md`](docs/DESIGN.md) 第 1、5 节。
 
 ## 快速开始
 
@@ -79,12 +109,26 @@ agents/
   README.md             # 能力与工具详细说明
 benchmarks/
   gaia_eval.py          # GAIA 评测（精确匹配 + LLM-as-judge 双评分）
-  swebench_eval.py      # SWE-bench 评测（clone@base_commit → patch → test 校验）
+  swebench_eval.py      # SWE-bench 评测（clone@base_commit → patch → test 校验，支持 --augment 对比）
   run_swebench_official.py  # 官方 harness 本地化包装（预构建镜像跑 FAIL_TO_PASS/PASS_TO_PASS）
   stress_compact.py     # 长会话压缩压测（auto_compact 前后 token 对比）
-  results_sink.py       # 结果沉淀（JSONL + BENCHMARK.md 汇总）
+  synth_negatives.py    # 数据合成 ①：从失败案例构造"错误对比对"（bad patch ⇄ 修正 patch）
+  synth_rubric.py       # 数据合成 ②：生成 rubric + LLM-as-judge 判分 + 质控统计
+  results_sink.py       # 结果沉淀（JSONL + BENCHMARK_{name}.md 汇总）
   visualize.py          # 结果可视化（dashboard / per_repo / per_instance 图表）
-  results/              # 评测结果留档（JSONL + BENCHMARK.md + 可视化图表）
+  results/              # 评测结果留档（JSONL + BENCHMARK_{name}.md + 合成数据 + 可视化图表）
+docs/
+  DESIGN.md             # 设计文档：与 Claude Code 的关系 + 关键设计取舍
+  BENCHMARK.md          # 评测报告：SWE-bench 官方判定 + 失败复盘 + GAIA 口径
+  DATA_PIPELINE.md      # 数据流水线：合成数据规范 + 质检规则 + 迭代验证方法
+  SFT_LORA.md           # 微调实验报告：真实 LoRA + HumanEval 配对前后对比（Δ 无提升，如实标注）
+  eval-stress-roadmap.md# 评测与压测接入路线图
+scripts/
+  reproduce_benchmark.sh# 一键复现 SWE-bench（patch 生成 → 官方判定 → 沉淀）
+  finetune_lora.sh      # 合成数据→LoRA 入口（环境自检 + 运行计划）
+  lora_train.py         # 真实 LoRA 训练（公开代码语料，GPU 可跑）
+  ft_eval.py            # HumanEval pass@1 单卡评测
+  ft_eval_parallel.py   # HumanEval 跨多卡并行评测（base vs lora 配对对比）
 examples/mcp/
   echo_server.py        # 极简 stdio MCP 服务器（echo/add/upper）
   db_server.py          # 基于 SQLite 的 MCP 服务器（只读 SQL、建表语句、笔记写入）
@@ -94,6 +138,18 @@ tests/
   test_mcp_integration.py         # MCP 客户端 / 路由器 / 插件的端到端测试
   test_eval_runner.py             # 无头评测（Mock 客户端）单元测试
 ```
+
+## 测试与工程配置
+
+```sh
+pip install -r requirements.txt -r requirements-dev.txt   # 运行依赖 + 开发依赖
+
+python -m pytest tests/ -q   # 全部单测（含 TodoManager/MCP/无头评测 Mock 测试）
+ruff check .                  # lint（pyproject.toml 配置了行宽/规则/排除项）
+mypy agents/                  # 类型检查（渐进式：未标注处不强求）
+```
+
+三者均为 CI 的一部分（见 `.github/workflows/test.yml`），push 即触发；CI 使用 Mock 客户端，不依赖真实 API。
 
 ## 示例
 
@@ -106,7 +162,7 @@ tests/
 
 ## 评测
 
-把"人工驱动的交互式 REPL"重构为"可编程的一次性会话"，可在无头（headless）环境下批量跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`。
+把"人工驱动的交互式 REPL"重构为"可编程的一次性会话"，可在无头（headless）环境下批量跑 benchmark。路线图见 `docs/eval-stress-roadmap.md`，完整评测数据与失败复盘见 **[`docs/BENCHMARK.md`](docs/BENCHMARK.md)**。
 
 ### 无头评测入口（阶段 1）
 
@@ -155,6 +211,18 @@ python benchmarks/gaia_eval.py --max 5 --split test        # 前 5 条 level1 �
 python benchmarks/gaia_eval.py --max 5 --judge             # 启用 LLM-as-judge 二次评分
 ```
 
+**实测结果**（deepseek-chat，2026-08-26，`2023_level1` 纯文本子集，5 条中 4 条完成）：
+
+| 指标 | 值 |
+|---|---|
+| 精确匹配（exact） | 0 / 4 |
+| LLM-as-judge 通过 | **3 / 4（75%）** |
+| 平均轮次 | 1.25 |
+| 平均耗时(s) | 21.65 |
+
+> 口径：exact=0 说明模型未给出与答案逐字一致的回答（GAIA 标准极严）；judge 侧为同模型 LLM-as-judge，
+> 存在"自说自话"偏差、结果更乐观，二者分开标注。第 5 条问题引导 Agent 探测本机网络/代理配置，陷入无界探测被超时中断（未收敛）。
+
 ### SWE-bench（阶段 2）
 
 ```sh
@@ -182,9 +250,9 @@ python benchmarks/run_swebench_official.py -d benchmarks/results/swebench_local.
 | pallets__flask-4045 | 是 | FAIL | 63 | 253 | F2P 0/2 通过；P2P 50/50 通过 |
 | pytest-dev__pytest-10051 | 是 | FAIL | 26 | 48 | F2P 0/1 通过；P2P 14/15（1 回归） |
 | sphinx-doc__sphinx-10021 | 否 | - | 32 | 57 | 未产出有效 diff，未提交 |
-| sympy__sympy-11232 | 否 | - | 796 | - | 子进程超时，未产出有效 diff |
+| sympy__sympy-11232 | 否 | - | 未记录 | 795.5 | 子进程超时，未产出有效 diff |
 
-**官方用例通过 1/4（提交评测的 4 条中 requests 真正 resolve）**，文件级命中 4/6 = 66.7%，平均轮次 34.8。完整记录与图表见 `benchmarks/results/`。
+**官方用例通过 1/4（提交评测的 4 条中 requests 真正 resolve）**，文件级命中 4/6 = 66.7%，平均耗时 223.9s（6 条）。为避免把 sympy 缺失的轮数当作 0 造成"平均轮次"失准，不列轮数平均值，以逐实例轮数表格为准。完整记录与图表见 `benchmarks/results/`。
 
 > 口径说明：文件级命中（patch_valid）是"模型 diff 触碰了 gold patch 涉及文件"的近似指标；官方判定才是真实测试通过。评测全程严禁 gold patch / test patch 注入模型输入。
 
@@ -201,17 +269,38 @@ python benchmarks/visualize.py --no-show           # 只存图到 results/visual
 
 ### 结果沉淀（阶段 5）
 
-所有结果统一写入 `benchmarks/results/{name}.jsonl`，汇总生成 BENCHMARK.md：
+所有结果统一写入 `benchmarks/results/{name}.jsonl`，汇总生成 `BENCHMARK_{name}.md`（每个数据集独立文件，互不覆盖）：
 
 ```sh
-python benchmarks/results_sink.py --name gaia --model deepseek-chat --config "max=5, judge=off"
+python benchmarks/results_sink.py --name swebench --model deepseek-chat --config "6 instances, official harness"
+python benchmarks/results_sink.py --name gaia     --model deepseek-chat --config "max=5, judge=off"
 ```
 
-## 测试
+## 数据合成与迭代（Phase 6）
+
+把 **SWE-bench 官方判定的失败案例**变成**可复用数据**，补齐"训练 / 数据"这一条腿：
 
 ```sh
-python -m pytest tests/test_agents_smoke.py tests/test_mcp_integration.py tests/test_eval_runner.py -q
+# ① 从失败案例构造"错误对比对"（仅用 agent 失败 patch，gold patch 零注入）
+python benchmarks/synth_negatives.py --max 4 --name synth_negatives
+# ② 生成 rubric + LLM-as-judge 判分 + 质控统计
+python benchmarks/synth_rubric.py --name synth_negatives --out synth_rubric
+# （可选）前后对比：基线 vs 注入合成负例
+python benchmarks/swebench_eval.py --ids django__django-10087,pallets__flask-4045 \
+    --augment benchmarks/results/synth_negatives.jsonl --name augmented_subset
 ```
+
+数据规范、质检规则、迭代验证方法与诚实边界见
+[`docs/DATA_PIPELINE.md`](docs/DATA_PIPELINE.md)；**微调已实跑**（真实 LoRA + HumanEval 配对前后对比，
+**Δ≈−0.09、无提升、如实标注**）见 [`docs/SFT_LORA.md`](docs/SFT_LORA.md)。
+
+> 诚信底线：正例是 **LLM 合成的"修正 patch"，不是 gold patch**；`gold_patch_used` 恒为 `False`。
+> 微调（LoRA）已真实执行并做**配对前后评测**，结果为"无提升（噪声内）"，**未虚称提升**；
+> 用于后训练的脚本见 `scripts/lora_train.py`、`scripts/ft_eval*.py`。
+
+## 测试与 CI
+
+测试、lint、类型检查已在上文「测试与工程配置」说明；CI 见 `.github/workflows/test.yml`（push 触发，三件套全跑）。
 
 ## License
 

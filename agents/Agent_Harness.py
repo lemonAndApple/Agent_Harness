@@ -55,7 +55,7 @@ import subprocess     # 执行系统命令
 import threading      # 多线程
 import time           # 时间
 import uuid           # 唯一 ID
-from datetime import datetime, timedelta  # 日期时间
+from datetime import datetime  # 日期时间
 from fnmatch import fnmatch               # Unix 通配符匹配
 from pathlib import Path                  # 文件路径
 from queue import Queue, Empty            # 线程安全队列
@@ -116,8 +116,7 @@ IDLE_TIMEOUT = 60
 # 任务创建后超过该秒数仍未有人认领 → 自动 spawn 一个队友去认领执行
 UNCLAIMED_THRESHOLD = 8
 # 自动拉起的队友最多同时存在的数量（防 API 成本失控）
-# 可用环境变量 AUTO_WORKER_MAX 覆盖（默认 3）
-AUTO_WORKER_MAX = int(os.getenv("AUTO_WORKER_MAX", "3"))
+AUTO_WORKER_MAX = 3
 # 自动队友池化命名前缀（worker-1, worker-2 ...）
 AUTO_WORKER_PREFIX = "worker"
 
@@ -911,7 +910,7 @@ class SkillLoader:
         存入 self.skills: {技能名: {"meta": {...}, "body": "指令正文"}}。
         rglob 递归搜索所有子目录，glob 只搜当前目录。
         """
-        self.skills = {}
+        self.skills: dict = {}
         if skills_dir.exists():
             # sorted() 保证按名称排序，结果可预测
             for f in sorted(skills_dir.rglob("SKILL.md")):
@@ -1031,7 +1030,7 @@ def microcompact(messages: list):  # type: ignore
 def _chunk_messages(messages: list, max_chars: int) -> list[list]:
     """将消息列表按字符数切分成多个块，每条消息保持完整不拆分。"""
     chunks = []
-    current_chunk = []
+    current_chunk: list = []
     current_size = 0
 
     for msg in messages:
@@ -1198,7 +1197,7 @@ def auto_compact(messages: list, focus: str = None) -> list: # type: ignore
 #   ---
 #   name: logging-preference
 #   description: User prefers structured logging
-#   type: feedback
+#   memory_type: feedback
 #   ---
 #   User said to always use logging module instead of print().
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1208,7 +1207,7 @@ class MemoryManager:
 
     def __init__(self, memory_dir: Path = None): # type: ignore
         self.memory_dir = memory_dir or MEMORY_DIR
-        self.memories = {}  # {记忆名: {"description":..., "type":..., "content":..., "file":...}}
+        self.memories: dict = {}  # {记忆名: {"description":..., "type":..., "content":..., "file":...}}
 
     def load_all(self):
         """从 .memory/ 目录加载所有记忆文件（MEMORY.md 索引文件除外）。
@@ -1559,7 +1558,7 @@ class MessageBus:
             return []
 
         # 逐行解析 JSON（跳过空行）
-        msgs = [json.loads(l) for l in path.read_text().strip().splitlines() if l]
+        msgs = [json.loads(line) for line in path.read_text().strip().splitlines() if line]
         path.write_text("")  # 清空文件
         return msgs
 
@@ -1587,8 +1586,8 @@ class MessageBus:
 # plan_requests:     {request_id: {"from": "队友名", "description": "...", "status": "..."}}
 # ====================================================================
 
-shutdown_requests = {}
-plan_requests = {}
+shutdown_requests: dict = {}
+plan_requests: dict = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1622,7 +1621,7 @@ class TeammateManager:
         self.task_mgr = task_mgr
         self.config_path = TEAM_DIR / "config.json"
         self.config = self._load()  # 加载团队配置
-        self.threads = {}  # 存放线程引用（预留扩展）
+        self.threads: dict = {}  # 存放线程引用（预留扩展）
 
     def _load(self) -> dict:
         """从 .team/config.json 加载配置；文件不存在时返回默认配置。"""
@@ -1805,8 +1804,7 @@ class TeammateManager:
 
                 if unclaimed:
                     task = unclaimed[0]
-                    # 用带互斥锁的全局 claim_task，避免两个 worker 同时抢同一任务
-                    claim_task(task["id"], name, role=role, source="auto")
+                    self.task_mgr.claim(task["id"], name)
 
                     # 身份重注入：防止对话被压缩后队友"忘了自己是谁"
                     if len(messages) <= 3:
@@ -1865,15 +1863,15 @@ class TeammateManager:
             time.sleep(POLL_INTERVAL)
 
     def _auto_heal(self):
-        """按任务积压量动态拉起队友，认领超时未领的 pending 任务。
-
-        规则：并发 worker 数 = min(待认领任务数, AUTO_WORKER_MAX)。
-        任务多就多开，任务少就少开，始终不超过上限，既按时完成又控成本。
-        """
+        """找出超时未被认领的 pending 任务，自动拉起一个队友去认领。"""
         now = time.time()
 
-        # 收集所有"可认领"的超时任务：pending + 无 owner + 无依赖阻塞 + 创建后超时
-        claimable = []
+        # 活跃队友数（working/idle 都算活着），达到上限则不再拉起，防止 API 成本失控
+        active = [m for m in self.config["members"] if m.get("status") in ("working", "idle")]
+        if len(active) >= AUTO_WORKER_MAX:
+            return
+
+        # 扫描任务板：pending + 无 owner + 无依赖阻塞 + 创建后超时未认领
         for f in sorted(TASKS_DIR.glob("task_*.json")):
             try:
                 t = json.loads(f.read_text())
@@ -1883,35 +1881,16 @@ class TeammateManager:
                     and not t.get("owner")
                     and not t.get("blockedBy")
                     and (now - t.get("created_at", now)) >= UNCLAIMED_THRESHOLD):
-                claimable.append(t)
-
-        if not claimable:
-            return  # 没有积压任务
-
-        # 活跃队友数（working/idle 都算活着）
-        active = [m for m in self.config["members"] if m.get("status") in ("working", "idle")]
-
-        # 目标 = 按积压量动态决定，但封顶 AUTO_WORKER_MAX
-        target = min(len(claimable), AUTO_WORKER_MAX)
-
-        # 需要再拉起的数量
-        wanted = target - len(active)
-        if wanted <= 0:
-            return  # 现有队友够用
-
-        # 逐一拉起，直到达到 target 或名字用尽
-        for task in claimable:
-            worker = self._next_worker_name()
-            if not worker:
-                return  # 无可用名字（已达上限或编号耗尽）
-            prompt = (f"<auto-assigned>Task #{task['id']}: {task['subject']}\n"
-                      f"{task.get('description', '')}\n"
-                      f"Claim and complete this task, then idle.</auto-assigned>")
-            log.info(f"[watchdog] unclaimed task #{task['id']} -> spawning '{worker}'")
-            self.spawn(worker, "通用助手", prompt)
-            wanted -= 1
-            if wanted <= 0:
-                return  # 拉够了这一轮
+                worker = self._next_worker_name()
+                if not worker:
+                    return  # 无可用名字（已到上限）
+                prompt = (f"<auto-assigned>Task #{t['id']}: {t['subject']}\n"
+                          f"{t.get('description', '')}\n"
+                          f"Claim and complete this task, then idle.</auto-assigned>")
+                log.info(f"[watchdog] unclaimed task #{t['id']} -> spawning '{worker}'")
+                self.spawn(worker, "通用助手", prompt)
+                self._set_status(worker, "working")
+                return  # 一次只处理一个任务，下一轮再看
 
     def _next_worker_name(self) -> str:
         """池化生成队友名：优先复用已关闭的 worker-N，找不到才新建编号。"""
@@ -1927,7 +1906,7 @@ class TeammateManager:
             name = f"{AUTO_WORKER_PREFIX}-{i}"
             if name not in used:
                 return name
-        return None  # 全部编号已被占用
+        return None  # type: ignore # 全部编号已被占用
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1959,7 +1938,7 @@ class HookManager:
 
     def __init__(self, config_path: Path = None, sdk_mode: bool = False): # type: ignore
         # 初始化三种事件的钩子列表
-        self.hooks = {"PreToolUse": [], "PostToolUse": [], "SessionStart": []}
+        self.hooks: dict[str, list] = {"PreToolUse": [], "PostToolUse": [], "SessionStart": []}
 
         # SDK 模式不需要信任标记（已由环境验证）
         self._sdk_mode = sdk_mode
@@ -1986,7 +1965,7 @@ class HookManager:
         钩子通过环境变量获取上下文：HOOK_EVENT / HOOK_TOOL_NAME /
         HOOK_TOOL_INPUT（JSON，最多 10000 字符）/ HOOK_TOOL_OUTPUT（仅 PostToolUse）。
         """
-        result = {"blocked": False, "messages": []}
+        result: dict = {"blocked": False, "messages": []}
 
         # 安全检查：工作区不可信就不执行钩子
         if not self._check_workspace_trust():
@@ -2613,7 +2592,6 @@ def build_system_prompt() -> str:
     parts.append("Multi-step work -> task_create/task_update/task_list (persisted)")
     parts.append("Short checklists -> TodoWrite (in-memory)")
     parts.append("Delegation -> task (subagent spawning)")
-    parts.append("Parallel/independent subtasks -> task_create (a teammate auto-claims and runs it)")
     parts.append("Domain knowledge -> load_skill")
     parts.append("Code search -> search_files (regex, safer than shell grep)")
     parts.append("Delayed/scheduled work -> cron_create (BACKGROUND, never blocks; recurring=False for one-shot)")
@@ -2924,7 +2902,7 @@ def agent_loop(messages: list, max_rounds: int = None): # type: ignore
                 messages.append({"role": "user", "content": CONTINUATION_MESSAGE})
                 continue  # 继续下一轮循环
             else:
-                log.error(f"max_tokens recovery exhausted")
+                log.error("max_tokens recovery exhausted")
                 return
 
         max_output_recovery_count = 0  # 重置计数器
@@ -3177,7 +3155,7 @@ def write_transcript(history: list, path: Path) -> Path:
     return path
 
 
-def run_episode(prompt: str, transcript_path: Path = None, eval_mode: bool = True,
+def run_episode(prompt: str, transcript_path: Path = None, eval_mode: bool = True, # type: ignore
                 max_rounds: int = None) -> tuple: # type: ignore
     """无头运行一次完整评测 episode。
 
@@ -3275,12 +3253,8 @@ if __name__ == "__main__":
 
     print(f"[Agent Ready] coding-agent | mode={PERMS.mode} | tools={len(TOOLS)} | memories={mem_count}")
 
-    # 启动任务板守护线程：无人认领的任务自动拉起队友执行（仅交互模式启用）
-    TEAM.start_watchdog()
-    log.info("Task-board watchdog started (auto-spawn teammates for unclaimed tasks)")
-
     # ── REPL 循环 ────────────────────────────────────
-    history = []  # 对话历史，每次调用 agent_loop 都会修改它
+    history: list = []  # 对话历史，每次调用 agent_loop 都会修改它
     prompt_shown = False  # 提示符已显示标志（避免 select 轮询时每 1 秒重复打印刷屏）
     while True:
         # 自动唤醒：定时任务/后台任务/队友消息触发时无需用户输入

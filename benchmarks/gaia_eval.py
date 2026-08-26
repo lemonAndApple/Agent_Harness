@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents"))
@@ -24,7 +24,14 @@ import Agent_Harness as A  # noqa: E402
 from eval_runner import run_episode  # noqa: E402
 from results_sink import append_result, load_results, summarize, write_benchmark_md  # noqa: E402
 
+from dotenv import load_dotenv  # noqa: E402
+
+# 同时加载仓库 .env 与 agents/.env（后者含 HF_TOKEN / ANTHROPIC_API_KEY）
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
+load_dotenv(Path(__file__).resolve().parents[1] / "agents" / ".env", override=True)
+
 GAIA_DATASET = "gaia-benchmark/GAIA"
+DEFAULT_CONFIG = "2023_level1"
 
 
 def _norm(text: str) -> str:
@@ -61,20 +68,45 @@ def _llm_judge(prediction: str, ground_truth: str, question: str) -> bool:
         return False
 
 
-def load_gaia(max_items: int = None, split: str = "test") -> list: # type: ignore
-    """加载 GAIA 数据并过滤出 level1 纯文本子集。"""
+def load_gaia(max_items: int = None, split: str = "test",
+              config: str = DEFAULT_CONFIG) -> list: # type: ignore
+    """加载 GAIA 数据并过滤出 level1 纯文本子集。
+
+    - 数据集为 gated：需要有效且已接受条款的 HF_TOKEN（写入 .env，本脚本已加载）。
+    - 官方 huggingface.co 不可达时回退到国内镜像：HF_ENDPOINT=https://hf-mirror.com
+    - config 选官方子集（2023_level1 / 2 / 3 / 2023_all）；默认 level1。
+    """
+    # 镜像探测：默认端点不通则切 hf-mirror（与 swebench_eval 同款策略）
+    if not os.environ.get("HF_ENDPOINT"):
+        import urllib.request
+        try:
+            urllib.request.urlopen("https://huggingface.co", timeout=5)
+        except Exception:
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+            A.log.warning("[gaia] huggingface.co 不可达，切换 HF_ENDPOINT=%s",
+                          os.environ["HF_ENDPOINT"])
+    if not os.environ.get("HF_TOKEN"):
+        A.log.warning("[gaia] 检测到没有 HF_TOKEN：GAIA 是 gated 数据集，下载会 401；"
+                      "请写好授权 token（agents/.env 的 HF_TOKEN）")
+
     try:
         from datasets import load_dataset
     except ImportError as e:
         raise SystemExit("需要 `pip install datasets` 才能加载 GAIA 数据") from e
 
-    ds = load_dataset(GAIA_DATASET, split=split)
+    try:
+        ds = load_dataset(GAIA_DATASET, config, split=split)
+    except Exception as e:
+        raise SystemExit(
+            f"[gaia] 加载 GAIA 数据集失败（请确认 HF_TOKEN 已授权 + HF_ENDPOINT 可达）:\n{e}"
+        ) from e
+
     items = []
     for row in ds:
-        # level1 纯文本子集：不含附件（files 为空）且 level==1
+        # 只保留 level1 且纯文本（无附件）的样本
         if row.get("Level") != "1": # type: ignore
             continue
-        files = row.get("file_name") or row.get("files") or []
+        files = row.get("file_name") or row.get("files") or ""
         if files:
             continue
         items.append({
@@ -88,15 +120,15 @@ def load_gaia(max_items: int = None, split: str = "test") -> list: # type: ignor
 
 
 def run_gaia(max_items: int = None, judge: bool = False, split: str = "test",
-             workdir_root: Path = None, name: str = "gaia") -> None: # type: ignore
+             workdir_root: Path = None, name: str = "gaia",
+             config: str = DEFAULT_CONFIG) -> None: # type: ignore
     """运行 GAIA 评测：逐条 run_episode → 双评分 → 沉淀结果。"""
-    items = load_gaia(max_items, split)
+    items = load_gaia(max_items, split, config)
     A.bootstrap()
 
     passed_exact = 0
     passed_judge = 0
     for i, item in enumerate(items):
-        t0 = time.time()
         q = item["question"]
         gt = item["ground_truth"]
         sandbox = (workdir_root / f"gaia_{i:03d}").resolve() if workdir_root else None
@@ -129,5 +161,7 @@ if __name__ == "__main__":
     parser.add_argument("--judge", action="store_true", help="启用 LLM-as-judge 二次评分")
     parser.add_argument("--workdir-root", type=Path, default=None, help="沙箱根目录")
     parser.add_argument("--name", default="gaia", help="结果名")
+    parser.add_argument("--config", default=DEFAULT_CONFIG,
+                        help=f"GAIA 子集（默认 {DEFAULT_CONFIG}；可选 2023_all / 2023_level2 / 2023_level3）")
     args = parser.parse_args()
-    run_gaia(args.max, args.judge, args.split, args.workdir_root, args.name)
+    run_gaia(args.max, args.judge, args.split, args.workdir_root, args.name, args.config)
