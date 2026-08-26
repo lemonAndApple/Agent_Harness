@@ -143,7 +143,14 @@ ruff check .                  # lint（pyproject.toml 配置了行宽/规则/排
 mypy agents/                  # 类型检查（渐进式：未标注处不强求）
 ```
 
-三者均为 CI 的一部分（见 `.github/workflows/test.yml`），push 即触发；CI 使用 Mock 客户端，不依赖真实 API。
+其中：
+- **`ruff`（linter）**：静态扫描代码里的真实错误与坏习惯（未使用导入/变量、未定义名字、潜在 bug）。`pyproject.toml` 只启用核心规则 `E/F/W` 并关掉中文注释噪音（`RUF002/RUF003`）与行宽 `E501`，收敛到"发现真实隐患"。
+- **`mypy`（类型检查）**：不运行代码，只对照类型标注找"这里可能是 `None`""参数类型传错"这类隐患。开启 `implicit_optional`、`ignore_missing_imports`，并以 `check_untyped_defs = false` 做**渐进式**检查——只严查已标注处，未标注处不强求（对约 3300 行单文件是务实取舍）。
+- **`pytest`（单元测试）**：真正执行代码并断言行为正确。`tests/` 覆盖模块编译冒烟、TodoManager、MCP 端到端、headless 评测 Mock 等 36 个用例，全程使用 Mock 客户端、不依赖真实 API。
+
+三者的行为配置统一写在 [`pyproject.toml`](pyproject.toml) 的 `[tool.ruff]` / `[tool.mypy]` / `[tool.pytest.ini_options]` 分节里——一个文件集中管理，代码与配置同源可复现。
+
+均为 CI 的一部分（见 `.github/workflows/test.yml`）：push / PR 到 `main` 时 GitHub 自动在云端跑「装依赖 → `ruff check .` → `mypy agents/` → `pytest tests/ -q`」三关，任一失败即拦截。因此"测试通过""类型无误"由自动化机制保证，而非人工声明——这与项目"用可核验结果而非漂亮数字支撑结论"的主线一致。
 
 ## 示例
 
