@@ -8,7 +8,7 @@
 
 输出：
   benchmarks/results/visualization/
-    dashboard.png   整体看板（通过率 + 轮次 + 耗时 + 命中文件）
+    dashboard.png   整体看板（真实通过率 + 轮次 + 耗时 + 官方判定）
     per_repo.png    按仓库汇总
     per_instance.png 单条明细
 """
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter
 from pathlib import Path
 
 import matplotlib
@@ -66,7 +65,7 @@ def _show(no_show: bool = False) -> None:
 
 
 def plot_dashboard(results: list, out: Path) -> Path:
-    """整体看板：通过率 / 轮次 / 耗时 / 命中文件 Top。"""
+    """整体看板：通过率 / 轮次 / 耗时 / 官方判定。"""
     ok = [r for r in results if r.get("passed")]
     n_ok = len(ok)
     n_official = sum(1 for r in results if r.get("official_resolved") is True)
@@ -74,16 +73,16 @@ def plot_dashboard(results: list, out: Path) -> Path:
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     fig.suptitle(
-        f"SWE-bench Evaluation Overview  (file-hit {n_ok}/{len(results)}  |  "
+        f"SWE-bench Evaluation Overview  (resolved {n_ok}/{len(results)}  |  "
         f"official resolved {n_official}/{n_official_total})",
         fontsize=16, fontweight="bold",
     )
 
-    # 1) 通过率
+    # 1) 通过率（真实测试判定）
     ax = axes[0][0]
     ax.bar(["Passed", "Failed"], [n_ok, len(results) - n_ok],
            color=["#4CAF50", "#F44336"], width=0.5)
-    ax.set_title("Passed / Failed (file-level hit proxy)")
+    ax.set_title("Passed / Failed (official test)")
     ax.set_ylabel("count")
     for i, v in enumerate([n_ok, len(results) - n_ok]):
         ax.text(i, v + 0.02, str(v), ha="center", fontweight="bold")
@@ -109,20 +108,20 @@ def plot_dashboard(results: list, out: Path) -> Path:
     for i, v in enumerate(elapsed):
         ax.text(v + 0.05, i, f"{v}", va="center", fontsize=8)
 
-    # 4) 命中文件 Top
+    # 4) 官方判定分布
     ax = axes[1][1]
-    files: Counter = Counter()
-    for r in results:
-        for f in r.get("hit_files") or []:
-            files[f] += 1
-    if files:
-        top = files.most_common(8)
-        ax.barh([f.split("/")[-1] for f, _ in top], [c for _, c in top], color="#FF9800")
-        ax.set_title("Gold files hit by model (Top8)")
-        ax.set_xlabel("hit count")
-        ax.invert_yaxis()
+    off_present = [r for r in results if r.get("official_resolved") is not None]
+    if off_present:
+        labels = ["resolved", "not resolved"]
+        vals = [sum(1 for r in off_present if r.get("official_resolved") is True),
+                sum(1 for r in off_present if r.get("official_resolved") is False)]
+        ax.bar(labels, vals, color=["#4CAF50", "#F44336"], width=0.5)
+        ax.set_title("Official harness verdict")
+        ax.set_ylabel("count")
+        for i, v in enumerate(vals):
+            ax.text(i, v + 0.02, str(v), ha="center", fontweight="bold")
     else:
-        ax.text(0.5, 0.5, "no hits recorded", ha="center", va="center")
+        ax.text(0.5, 0.5, "no official verdicts", ha="center", va="center")
 
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     fig.savefig(out, dpi=130, bbox_inches="tight")
@@ -148,7 +147,7 @@ def plot_per_repo(results: list, out: Path) -> Path:
     ax1.set_ylabel("count")
 
     ax2.bar(repos, valid, color="#4CAF50")
-    ax2.set_title("Passed (file-level hit)")
+    ax2.set_title("Resolved (official test)")
     ax2.set_ylabel("count")
 
     for ax in (ax1, ax2):
@@ -168,16 +167,15 @@ def plot_per_instance(results: list, out: Path) -> Path:
     status = ["PASS" if r.get("passed") else "FAIL" for r in results]
     official = ["YES" if r.get("official_resolved") is True else
                 "NO" if r.get("official_resolved") is False else "-" for r in results]
-    hits = [",".join(f.split("/")[-1] for f in (r.get("hit_files") or [])) or "-" for r in results]
     errs = [("ERR: " + str(r.get("error", ""))[:40]) if r.get("error") else "-" for r in results]
     errs = [_ascii(e) for e in errs]
 
-    fig, ax = plt.subplots(figsize=(14, 0.6 * len(results) + 2))
+    fig, ax = plt.subplots(figsize=(13, 0.6 * len(results) + 2))
     ax.axis("off")
-    col_labels = ["instance", "status", "official", "rounds", "elapsed_s", "hit_files", "error"]
+    col_labels = ["instance", "status", "official", "rounds", "elapsed_s", "error"]
     table = ax.table(
-        cellText=[[i, s, o, str(r), str(e), h, er]
-                  for i, s, o, r, e, h, er in zip(ids, status, official, rounds, elapsed, hits, errs)],
+        cellText=[[i, s, o, str(r), str(e), er]
+                  for i, s, o, r, e, er in zip(ids, status, official, rounds, elapsed, errs)],
         colLabels=col_labels, loc="center", cellLoc="left",
     )
     table.auto_set_font_size(False)
@@ -213,17 +211,16 @@ def main() -> int:
         print(f"wrote {p}")
 
     # 打印一张简易文本表格，方便终端直接看
-    print("\n" + "=" * 92)
-    print(f"{'instance':<34} {'hit':<6} {'official':<9} {'rounds':>6} {'elapsed_s':>9}  hit_files")
-    print("-" * 92)
+    print("\n" + "=" * 76)
+    print(f"{'instance':<34} {'official':<9} {'rounds':>6} {'elapsed_s':>9}  status")
+    print("-" * 76)
     for r in results:
         iid = _short(r.get("id", "?"), 34)
-        st = "HIT" if r.get("patch_valid") else "-"
         off = "RESOLVED" if r.get("official_resolved") is True else \
               ("FAIL" if r.get("official_resolved") is False else "-")
-        print(f"{iid:<34} {st:<6} {off:<9} {r.get('rounds') or 0:>6} {r.get('elapsed_s') or 0:>9}  "
-              f"{','.join(f.split('/')[-1] for f in (r.get('hit_files') or [])) or '-'}")
-    print("=" * 92)
+        st = "PASS" if r.get("passed") else "FAIL"
+        print(f"{iid:<34} {off:<9} {r.get('rounds') or 0:>6} {r.get('elapsed_s') or 0:>9}  {st}")
+    print("=" * 76)
 
     _show(args.no_show)
     return 0

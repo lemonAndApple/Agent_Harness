@@ -183,22 +183,6 @@ def _run_tests(repo_dir: Path, item: dict) -> tuple[bool, str]:
     return passed, f"{f2p_detail} | {p2p_detail} | tail={_git('log', '-1', '--format=%h', cwd=repo_dir)}"
 
 
-def _patch_validity(model_patch: str, item: dict) -> tuple[bool, list]:
-    """启发式：模型 patch 是否改动了 gold patch 涉及的正确文件。
-
-    不依赖 Docker 测试环境即可评估"模型是否找到了正确的修改位置"：
-    提取 gold patch（item["patch"]）涉及的文件集合，与模型 patch 的文件集合取交集。
-    """
-    def _files(patch: str) -> set:
-        return {m.group(1) for m in re.finditer(r"^\+\+\+ b/([^\t\n]+)", patch, re.MULTILINE)}
-    gold_files = _files(item.get("patch") or "")
-    model_files = _files(model_patch or "")
-    if not gold_files:
-        return False, []
-    hit = [f for f in gold_files if f in model_files]
-    return bool(hit), sorted(hit)
-
-
 def _augment_context(path: str = None) -> str:
     """从合成负例（synth_negatives.jsonl）构造"需避免的失败模式"上下文。
 
@@ -247,7 +231,7 @@ def run_swebench(max_items: int = None, run_tests: bool = False,
             repo_dir = setup_repo(item)
         except Exception as e:
             # setup 失败（如 clone 超时/镜像不可达）也要留档并继续，不能中断整批
-            record = {"id": item["id"], "passed": False, "patch_valid": False,
+            record = {"id": item["id"], "passed": False,
                       "error": f"setup failed: {e}", "elapsed_s": round(time.time() - t0, 2)}
             append_result(record, name)
             print(f"[{i + 1}/{len(items)}] {item['id']} SETUP ERROR: {e}")
@@ -267,9 +251,7 @@ def run_swebench(max_items: int = None, run_tests: bool = False,
             # 评测隔离：每个实例独立 repo，模型 patch 就是 repo 的 git diff
             model_patch = _git("diff", cwd=repo_dir)
 
-            # 启发式：模型是否改对了 gold patch 涉及的文件（不依赖测试环境）
-            patch_valid, hit_files = _patch_validity(model_patch, item)
-
+            # 判定：真实测试（Docker 环境需 --run-tests 或官方 harness，不启用则如实记为未测）
             passed = False
             test_detail = "not run"
             if run_tests:
@@ -277,23 +259,18 @@ def run_swebench(max_items: int = None, run_tests: bool = False,
                     passed, test_detail = _run_tests(repo_dir, item)
                 except Exception as e:
                     passed, test_detail = False, f"test runner error: {e}"
-            else:
-                # 无 Docker 测试环境时，以"文件级命中"（patch_valid）作为通过代理，
-                # 便于通过率/可视化解读；真实测试判定仍可 --run-tests 复核。
-                passed = patch_valid
 
             record = {
                 "id": item["id"], "passed": passed,
-                "patch_valid": patch_valid, "hit_files": hit_files,
                 "rounds": result["rounds"], "elapsed_s": result["elapsed_s"],
                 "prediction": prediction,
                 "model_patch": model_patch,
                 "test_detail": test_detail,
             }
             append_result(record, name)
-            print(f"[{i + 1}/{len(items)}] {item['id']} passed={passed} patch_valid={patch_valid} hit={hit_files}")
+            print(f"[{i + 1}/{len(items)}] {item['id']} passed={passed}")
         except Exception as e:
-            record = {"id": item["id"], "passed": False, "patch_valid": False, "error": str(e), "elapsed_s": round(time.time() - t0, 2)}
+            record = {"id": item["id"], "passed": False, "error": str(e), "elapsed_s": round(time.time() - t0, 2)}
             append_result(record, name)
             print(f"[{i + 1}/{len(items)}] {item['id']} ERROR: {e}")
 

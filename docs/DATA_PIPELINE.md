@@ -42,7 +42,7 @@
    从不写进 prompt 或输出；只在工程里读取 `problem_statement`。
 2. **可追溯**：每条样本必须指向一个真实失败实例 `source_instance`，杜绝"无中生有"。
 3. **正例是"合成"而非"gold"**：同步在 `docs/BENCHMARK.md` 口径里区分
-   `file-level hit` / `official resolved` / `synthetic positive`，三套口径分开列。
+   `official resolved` / `synthetic positive`，两套口径分开列。
 
 ---
 
@@ -70,7 +70,7 @@
 **方法**（用已有评测工具）：
 - **基线**：`swebench_eval.py` 对某一小集合跑 `--ids <集合>`（不注入合成负例）。
 - **增强**：在**同一集合**上，把合成负例（`error_type → 失败样例 → 修正思路`）注入系统提示，
-  再跑一遍。记录同一集合的 Δ 通过率 / 文件级命中率变化。
+  再跑一遍。记录同一集合的 Δ 通过率变化。
 - **防偶然波动**：小样本用**多次重复**（如 n≥3）报告均值与方差/std，区分"真实提升"与"运气"。
 
 ```sh

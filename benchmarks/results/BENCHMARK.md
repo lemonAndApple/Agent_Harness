@@ -10,7 +10,6 @@
 | 指标 | 值 |
 |---|---|
 | 实例数 | 6 |
-| 文件级命中 (patch_valid) | 4 (67%) |
 | **官方用例通过 (resolved)** | **1 / 4** |
 | 平均轮次 | 34.83 |
 | 平均耗时(s) | 223.89 |
@@ -18,13 +17,13 @@
 
 ## 逐实例
 
-| instance | 文件级命中 | 官方判定 | FAIL_TO_PASS / PASS_TO_PASS |
-|---|---|---|---|
-| psf__requests-1142 | 是 | YES | FAIL_TO_PASS 1/1 pass; PASS_TO_PASS 5/5 pass |
-| django__django-10087 | 是 | NO | patch apply failed (model patch malformed, no trailing newline) |
-| pallets__flask-4045 | 是 | NO | FAIL_TO_PASS 0/2 pass; PASS_TO_PASS 50/50 pass (F2P failed) |
-| pytest-dev__pytest-10051 | 是 | NO | FAIL_TO_PASS 0/1 pass; PASS_TO_PASS 14/15 pass (F2P failed, 1 regression) |
-| sphinx-doc__sphinx-10021 | 否 | - | no patch produced (not submitted) |
-| sympy__sympy-11232 | 否 | - | no patch produced (not submitted) |
+| instance | 官方判定 | FAIL_TO_PASS / PASS_TO_PASS |
+|---|---|---|
+| psf__requests-1142 | YES | FAIL_TO_PASS 1/1 pass; PASS_TO_PASS 5/5 pass |
+| django__django-10087 | NO | patch apply failed (model patch malformed, no trailing newline) |
+| pallets__flask-4045 | NO | FAIL_TO_PASS 0/2 pass; PASS_TO_PASS 50/50 pass (F2P failed) |
+| pytest-dev__pytest-10051 | NO | FAIL_TO_PASS 0/1 pass; PASS_TO_PASS 14/15 pass (F2P failed, 1 regression) |
+| sphinx-doc__sphinx-10021 | - | no patch produced (not submitted) |
+| sympy__sympy-11232 | - | no patch produced (not submitted) |
 
-> 说明：文件级命中 = 模型 diff 触碰 gold patch 涉及文件；官方判定 = 官方 Docker 镜像跑 FAIL_TO_PASS/PASS_TO_PASS。sphinx/sympy 未产出有效 diff，未提交官方评测。
+> 说明：官方判定 = 官方 Docker 镜像跑 FAIL_TO_PASS/PASS_TO_PASS。sphinx/sympy 未产出有效 diff，未提交官方评测。

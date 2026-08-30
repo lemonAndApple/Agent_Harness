@@ -105,9 +105,8 @@
   同目录可扩展跨进程；已知边界是"处理中崩溃会丢消息"（at-most-once），改进路径是消费确认 + 重放日志。
 - **全局单例重置**：MEMORY / BUS / TASK_MGR / BG / CRON 是进程级单例，`reset_runtime_state()` 每次
   episode 重建，避免跨任务状态污染（这一点在评测里是硬要求，否则结果不可信）。
-- **诚实边界**：不把"文件级命中"说成"resolved"。SWE-bench 里模型 diff 触碰了 gold patch 涉及文件
-  （file-level hit），和真正通过官方 FAIL_TO_PASS/PASS_TO_PASS（resolved）是两回事，
-  本项目在 README / design / benchmark 三处都分开口径、分开标注。
+- **诚实边界**：评测只认官方判定（SWE-bench 官方 harness 跑通 FAIL_TO_PASS/PASS_TO_PASS），
+  不以"模型 diff 碰了哪些文件"这类近似指标冒充真实通过；gold / test patch 全程零注入。
 
 ---
 

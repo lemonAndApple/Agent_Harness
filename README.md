@@ -233,18 +233,18 @@ python benchmarks/run_swebench_official.py -d benchmarks/results/swebench_local.
 
 **实测结果**（deepseek-chat，2026-08-22，6 个实例跨 6 仓库；官方判定用 swebench 4.0.5 + 预构建 Docker 镜像跑 FAIL_TO_PASS/PASS_TO_PASS）：
 
-| instance | 文件级命中 | 官方判定 | rounds | elapsed_s | FAIL_TO_PASS / PASS_TO_PASS |
-|---|---|---|---|---|---|
-| psf__requests-1142 | 是 | **RESOLVED** | 28 | 49 | 1/1 通过；5/5 通过 |
-| django__django-10087 | 是 | FAIL | 60 | 141 | patch 应用失败（模型补丁缺末尾换行） |
-| pallets__flask-4045 | 是 | FAIL | 63 | 253 | F2P 0/2 通过；P2P 50/50 通过 |
-| pytest-dev__pytest-10051 | 是 | FAIL | 26 | 48 | F2P 0/1 通过；P2P 14/15（1 回归） |
-| sphinx-doc__sphinx-10021 | 否 | - | 32 | 57 | 未产出有效 diff，未提交 |
-| sympy__sympy-11232 | 否 | - | 未记录 | 795.5 | 子进程超时，未产出有效 diff |
+| instance | 官方判定 | rounds | elapsed_s | FAIL_TO_PASS / PASS_TO_PASS |
+|---|---|---|---|---|
+| psf__requests-1142 | **RESOLVED** | 28 | 49 | 1/1 通过；5/5 通过 |
+| django__django-10087 | FAIL | 60 | 141 | patch 应用失败（模型补丁缺末尾换行） |
+| pallets__flask-4045 | FAIL | 63 | 253 | F2P 0/2 通过；P2P 50/50 通过 |
+| pytest-dev__pytest-10051 | FAIL | 26 | 48 | F2P 0/1 通过；P2P 14/15（1 回归） |
+| sphinx-doc__sphinx-10021 | - | 32 | 57 | 未产出有效 diff，未提交 |
+| sympy__sympy-11232 | - | 未记录 | 795.5 | 子进程超时，未产出有效 diff |
 
-**官方用例通过 1/4（提交评测的 4 条中 requests 真正 resolve）**，文件级命中 4/6 = 66.7%，平均耗时 223.9s（6 条）。为避免把 sympy 缺失的轮数当作 0 造成"平均轮次"失准，不列轮数平均值，以逐实例轮数表格为准。完整记录与图表见 `benchmarks/results/`。
+**官方用例通过 1/4（提交评测的 4 条中 requests 真正 resolve）**，平均耗时 223.9s（6 条）。为避免把 sympy 缺失的轮数当作 0 造成"平均轮次"失准，不列轮数平均值，以逐实例轮数表格为准。完整记录与图表见 `benchmarks/results/`。
 
-> 口径说明：文件级命中（patch_valid）是"模型 diff 触碰了 gold patch 涉及文件"的近似指标；官方判定才是真实测试通过。评测全程严禁 gold patch / test patch 注入模型输入。
+> 口径说明：官方判定才是真实测试通过（官方 Docker 镜像跑 FAIL_TO_PASS/PASS_TO_PASS）。评测全程严禁 gold patch / test patch 注入模型输入。
 
 ### 结果可视化
 
