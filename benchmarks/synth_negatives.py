@@ -43,6 +43,10 @@ import anthropic  # noqa: E402
 client = anthropic.Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ.get("MODEL_ID", "deepseek-chat")
 
+# 通用错误分类器（ERROR_TAXONOMY.md）：规则层确定性归类，替代旧的硬编码兜底。
+sys.path.insert(0, str(ROOT / "agents"))
+from error_classifier import ErrorClassifier, ERROR_TYPES as NEW_ERROR_TYPES  # noqa: E402
+
 # ---------- 失败实例的定位 ----------
 # 用官方判定为「失败 / 未 resolve / 无效 patch」的实例作为负例来源。
 # 注意：只用 agent 产出的 model_patch；绝不触碰 gold patch。
@@ -62,6 +66,9 @@ ERROR_TYPES = [
     "no_patch_produced",          # 探索未收敛 / 没产出有效 diff
     "subprocess_timeout",         # 工具循环触发超时
 ]
+
+# 新 6 维度清单，供 LLM prompt 使用（通用跨 benchmark，见 docs/ERROR_TAXONOMY.md）。
+CLASSIFIER = ErrorClassifier()
 
 
 def _load_instances() -> list:
@@ -136,6 +143,10 @@ def _extract_json(text: str) -> dict:
 
 
 def _default_error_type(instance_id: str) -> str:
+    """【迁移期兜底】旧硬编码映射；新代码优先走 CLASSIFIER 规则层。
+
+    仅在旧的 `--dry` 展示兜底使用。正常合成路径用 _classify_via_rules / classify()。
+    """
     m = {
         "django__django-10087": "patch_format_malformed",
         "pallets__flask-4045": "behavior_unmatched",
@@ -144,6 +155,31 @@ def _default_error_type(instance_id: str) -> str:
         "sympy__sympy-11232": "subprocess_timeout",
     }
     return m.get(instance_id, "behavior_unmatched")
+
+
+def _classify(inst: dict) -> tuple[str, str]:
+    """用 ErrorClassifier 对失败实例归类，返回 (error_type, classify_source)。
+
+    先走规则层（确定性）；规则不命中则回退旧硬编码并做 legacy→new 归一化。
+    """
+    ev = ErrorClassifier.build_evidence_from_record(
+        "swebench",
+        {
+            "id": inst.get("id"),
+            "model_patch": inst.get("agent_patch"),
+            "prediction": inst.get("prediction"),
+            "passed": False,
+            "official_resolved": False,
+            "official_test_detail": inst.get("test_detail") or "",
+            "rounds": inst.get("rounds"),
+        },
+    )
+    ev.problem_statement = inst.get("problem_statement") or ""
+    cls = CLASSIFIER.classify(ev)
+    if cls.source.startswith("rule:"):
+        return cls.error_type, cls.source
+    # 规则不命中：旧硬编码 → 归一化到新维度
+    return ErrorClassifier.normalize(_default_error_type(inst["id"])), "legacy-fallback"
 
 
 def synth_one(inst: dict) -> dict:
@@ -164,17 +200,22 @@ def synth_one(inst: dict) -> dict:
         + '"reasoning": "<2-4 sentences: where the agent went wrong>", '
         + '"revised_patch": "<a corrected unified diff that fixes the issue, '
         + 'or a concrete code-change plan with hunks>"}'
-    ).replace("<<ERROR_TYPES>>", ", ".join(ERROR_TYPES))
+    ).replace("<<ERROR_TYPES>>", ", ".join(NEW_ERROR_TYPES))
     raw = _call(prompt)
     payload = _extract_json(raw)
+    # LLM 给出的是新 6 维度；校验不通过则回退规则层/旧硬编码。
+    compat_types = NEW_ERROR_TYPES
     error_type = payload.get("error_type", "")
-    if error_type not in ERROR_TYPES:
-        error_type = _default_error_type(inst["id"])
+    if error_type not in compat_types:
+        error_type, classify_source = _classify(inst)
+    else:
+        classify_source = "llm"
 
     return {
         "id": f"synth_neg_{inst['id'].split('__')[-1]}",
         "source_instance": inst["id"],
         "error_type": error_type,
+        "classify_source": classify_source,
         "problem_statement": problem,
         "agent_bad_patch": bad_patch,
         "revised_good_patch": payload.get("revised_patch", ""),

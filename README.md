@@ -94,6 +94,7 @@ agents/
                         # 记忆、任务、团队、Cron、后台任务、Worktree
   eval_runner.py        # headless 评测入口：run_episode / 沙箱子进程 / JSONL 会话记录
   mcp_plugin.py         # MCP 客户端 / 插件发现 / 工具路由
+  error_classifier.py   # 通用错误分类器：FailureEvidence → 6 维度（rule/llm/fallback 三层）
   README.md             # 能力与工具详细说明
 benchmarks/
   gaia_eval.py          # GAIA 评测（精确匹配 + LLM-as-judge 双评分）
@@ -102,6 +103,7 @@ benchmarks/
   stress_compact.py     # 长会话压缩压测（auto_compact 前后 token 对比）
   synth_negatives.py    # 数据合成 ①：从失败案例构造"错误对比对"（bad patch ⇄ 修正 patch）
   synth_rubric.py       # 数据合成 ②：生成 rubric + LLM-as-judge 判分 + 质控统计
+  classify_failures.py  # 失败归因：走 ErrorClassifier 回填跨 benchmark 错误类型（6 维度）
   results_sink.py       # 结果沉淀（JSONL + BENCHMARK_{name}.md 汇总）
   visualize.py          # 结果可视化（dashboard / per_repo / per_instance 图表）
   results/              # 评测结果留档（JSONL + BENCHMARK_{name}.md + 合成数据 + 可视化图表）
@@ -109,6 +111,7 @@ docs/
   DESIGN.md             # 设计文档：系统架构 + 关键设计取舍
   BENCHMARK.md          # 评测报告：SWE-bench 官方判定 + 失败复盘 + GAIA 口径
   DATA_PIPELINE.md      # 数据流水线：合成数据规范 + 质检规则 + 迭代验证方法
+  ERROR_TAXONOMY.md     # 通用跨 benchmark 错误分类法 + 映射规则（错误归因）
   eval-stress-roadmap.md# 评测与压测接入路线图
 scripts/
   reproduce_benchmark.sh# 一键复现 SWE-bench（patch 生成 → 官方判定 → 沉淀）
@@ -275,13 +278,16 @@ python benchmarks/results_sink.py --name gaia     --model deepseek-chat --config
 python benchmarks/synth_negatives.py --max 4 --name synth_negatives
 # ② 生成 rubric + LLM-as-judge 判分 + 质控统计
 python benchmarks/synth_rubric.py --name synth_negatives --out synth_rubric
+# （可选）失败归因：走通用 6 维度分类器（跨 benchmark），只处理失败实例
+python benchmarks/classify_failures.py --name swebench --only-failed
 # （可选）前后对比：基线 vs 注入合成负例
 python benchmarks/swebench_eval.py --ids django__django-10087,pallets__flask-4045 \
     --augment benchmarks/results/synth_negatives.jsonl --name augmented_subset
 ```
 
 数据规范、质检规则、迭代验证方法与诚实边界见
-[`docs/DATA_PIPELINE.md`](docs/DATA_PIPELINE.md)。
+[`docs/DATA_PIPELINE.md`](docs/DATA_PIPELINE.md)；失败的错误归因分类法（跨 benchmark 通用）见
+[`docs/ERROR_TAXONOMY.md`](docs/ERROR_TAXONOMY.md)。
 
 > 诚信底线：正例是 **LLM 合成的"修正 patch"，不是 gold patch**；`gold_patch_used` 恒为 `False`。
 > "前后对比"是否算提升，必须以**配对 + 方差 + 官方测试**判定，未跑通则**不虚称**。
